@@ -1,22 +1,22 @@
 from __future__ import annotations
 
-import json
-from typing import Any, TypedDict
+from typing import Annotated, TypedDict
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from app.agent.prompts import ANSWER_PROMPT, SYSTEM_PROMPT
+from app.agent.prompts import SYSTEM_PROMPT
 from app.agent.tools import AgentTools
 from app.config import get_settings
 from app.models.schemas import Citation, ChatResponse
 
 
-class AgentState(TypedDict, total=False):
-    messages: list
+class AgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
     question: str
     session_id: str
 
@@ -47,12 +47,11 @@ class CustomerServiceAgent:
             return tools_impl.create_ticket(subject, detail, priority)
 
         self._lc_tools = [hybrid_search, entity_lookup, create_ticket]
-        self._tool_node = ToolNode(self._lc_tools)
 
         def call_model(state: AgentState) -> dict:
             llm = self._make_llm().bind_tools(self._lc_tools)
             response = llm.invoke(state["messages"])
-            return {"messages": state["messages"] + [response]}
+            return {"messages": [response]}
 
         def should_continue(state: AgentState) -> str:
             last = state["messages"][-1]
@@ -60,14 +59,9 @@ class CustomerServiceAgent:
                 return "tools"
             return END
 
-        def run_tools(state: AgentState) -> dict:
-            result = self._tool_node.invoke({"messages": state["messages"]})
-            # ToolNode returns updated messages list
-            return {"messages": result["messages"]}
-
         graph = StateGraph(AgentState)
         graph.add_node("agent", call_model)
-        graph.add_node("tools", run_tools)
+        graph.add_node("tools", ToolNode(self._lc_tools))
         graph.add_edge(START, "agent")
         graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
         graph.add_edge("tools", "agent")
@@ -86,12 +80,11 @@ class CustomerServiceAgent:
         if not self.settings.llm_ready:
             return self._offline_rag_answer(message, session_id)
 
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=message),
-        ]
         state: AgentState = {
-            "messages": messages,
+            "messages": [
+                SystemMessage(content=SYSTEM_PROMPT),
+                HumanMessage(content=message),
+            ],
             "question": message,
             "session_id": session_id,
         }
@@ -103,6 +96,12 @@ class CustomerServiceAgent:
             if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
                 answer = msg.content if isinstance(msg.content, str) else str(msg.content)
                 break
+        if not answer:
+            # Some models put final text on a tool-call message; fall back to last AI content
+            for msg in reversed(final_messages):
+                if isinstance(msg, AIMessage) and msg.content:
+                    answer = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    break
         if not answer:
             answer = "暂时无法生成回答，请稍后重试或转人工。"
 
@@ -117,7 +116,7 @@ class CustomerServiceAgent:
 
     def _offline_rag_answer(self, message: str, session_id: str) -> ChatResponse:
         """No LLM key: still demonstrate GraphRAG retrieval + template answer."""
-        context = self.tools_impl.hybrid_search(message, top_k=4)
+        self.tools_impl.hybrid_search(message, top_k=4)
         citations = [Citation(**c) for c in self.tools_impl.last_citations]
         if not citations:
             answer = (
@@ -125,9 +124,7 @@ class CustomerServiceAgent:
                 "请先启动 Neo4j 并执行 seed，或在 .env 中配置大模型密钥。"
             )
         else:
-            bullets = []
-            for i, c in enumerate(citations, start=1):
-                bullets.append(f"[{i}] {c.snippet}")
+            bullets = [f"[{i}] {c.snippet}" for i, c in enumerate(citations, start=1)]
             answer = (
                 "【离线 GraphRAG 演示模式】未检测到可用 LLM_API_KEY，"
                 "以下基于 Neo4j 混合检索结果整理：\n\n"
