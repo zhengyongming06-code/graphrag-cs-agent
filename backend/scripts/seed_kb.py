@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.config import get_settings
@@ -50,7 +50,7 @@ def main() -> None:
     stats = neo4j.stats()
     print("\nNeo4j 统计:", stats)
     print(f"本次写入文件数={len(files)}, chunks={total_chunks}, entities≈{total_entities}")
-    print("完成。可打开 http://localhost:7474 查看图谱。")
+    print("完成。可打开 http://localhost:7475 查看图谱。")
 
 
 if __name__ == "__main__":

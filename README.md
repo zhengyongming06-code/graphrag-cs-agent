@@ -1,15 +1,15 @@
 # NovaDesk GraphRAG CS Agent
 
-面向 **Agent 实习** 的可演示商业化项目：自建知识库智能客服，核心检索层使用 **Neo4j GraphRAG**（向量检索 + 关键词 + 图谱扩展），编排层使用 **LangGraph** 多工具 Agent。
+基于 **Neo4j GraphRAG** 的自建知识库智能客服：混合检索（向量 + 关键词 + 图谱扩展）+ **LangGraph** 多工具 Agent + FastAPI 服务端与聊天界面。
 
-## 简历可写技术点
+## 技术栈
 
 - Neo4j 知识图谱：`Document / Chunk / Entity`，关系 `HAS_CHUNK / MENTIONS / RELATED_TO`
 - GraphRAG 混合检索：Vector Index + Lexical + Graph Expansion
 - LangGraph Agent：`hybrid_search` / `entity_lookup` / `create_ticket`
-- FastAPI 服务 + 客服聊天 UI + 在线入库
+- FastAPI + 客服聊天 UI + 在线入库
 - Docker Compose 一键拉起 Neo4j
-- 离线演示模式（无 LLM Key 也能跑检索）
+- 无 LLM Key 时可走离线检索演示模式
 
 ## 快速开始
 
@@ -19,7 +19,8 @@
 docker compose up -d
 ```
 
-浏览器可打开 http://localhost:7474 （用户 `neo4j` / 密码见 `.env.example`）。
+浏览器可打开 http://localhost:7475 （用户 `neo4j` / 密码见 `.env.example`）。  
+> 默认映射到主机 `7475/7688`，避免与本机其他 Neo4j 实例冲突。
 
 ### 2. 配置环境
 
@@ -78,8 +79,8 @@ docker-compose.yml
 python eval/run_eval.py
 ```
 
-## 面试讲解建议
+## 设计说明
 
-1. 为什么用 Neo4j：客服知识不是纯扁平文档，政策/产品/故障之间有关系，图扩展能补全向量漏检。
-2. Agent 为什么比单次 RAG 强：可先检索再查实体，不够时建工单转人工。
-3. 可继续扩展：Reranker、多租户、对话记忆、LangSmith 观测、评测集 CI。
+1. 客服知识不只是扁平文档，产品、政策、故障之间存在关联；用 Neo4j 做图扩展，可以补上纯向量检索容易漏掉的上下文。
+2. Agent 比单次 RAG 更灵活：先混合检索，再按需查实体；证据不足时可建工单转人工。
+3. 可继续扩展：Reranker、多租户、对话记忆、可观测性、评测集 CI。
