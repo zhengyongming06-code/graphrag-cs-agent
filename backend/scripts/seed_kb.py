@@ -31,6 +31,12 @@ def main() -> None:
 
     total_chunks = 0
     total_entities = 0
+    category_map = {
+        "01_product_overview": "product",
+        "02_login_permissions": "support",
+        "03_billing_refund": "billing",
+        "04_bot_sla": "sla",
+    }
     for path in files:
         text = path.read_text(encoding="utf-8")
         title = path.stem
@@ -38,7 +44,7 @@ def main() -> None:
             title=title,
             content=text,
             source=path.name,
-            category="seed",
+            category=category_map.get(path.stem, "general"),
         )
         total_chunks += result.chunk_count
         total_entities += result.entity_count

@@ -1,15 +1,18 @@
 # NovaDesk GraphRAG CS Agent
 
-基于 **Neo4j GraphRAG** 的自建知识库智能客服：混合检索（向量 + 关键词 + 图谱扩展）+ **LangGraph** 多工具 Agent + FastAPI 服务端与聊天界面。
+基于 **Neo4j GraphRAG** 的企业知识库智能客服 Agent 中台：混合检索（向量 + 关键词 + 图谱扩展）+ **LangGraph** 多工具编排 + FastAPI 服务 + 可观测前端。
 
-## 技术栈
+## 能力一览（可演示）
 
-- Neo4j 知识图谱：`Document / Chunk / Entity`，关系 `HAS_CHUNK / MENTIONS / RELATED_TO`
-- GraphRAG 混合检索：Vector Index + Lexical + Graph Expansion
+- GraphRAG 知识中台：`Document / Chunk / Entity` + `HAS_CHUNK / MENTIONS / RELATED_TO`
+- 三路融合检索：Vector Index + Lexical + Graph Expansion
 - LangGraph Agent：`hybrid_search` / `entity_lookup` / `create_ticket`
-- FastAPI + 客服聊天 UI + 在线入库
+- **检索 A/B 对比**：纯向量 vs Hybrid GraphRAG（`/api/retrieve/compare`）
+- **回归评测**：Agent 命中率 + 检索覆盖对比（`/api/eval/run`）
+- **多分类知识库**：product / support / billing / sla …
+- **管理鉴权**：写接口支持 `X-Admin-Token`（`APP_SECRET`）
+- Citation 引用 + Tool Trace 可观测
 - Docker Compose 一键拉起 Neo4j
-- 无 LLM Key 时可走离线检索演示模式
 
 ## 快速开始
 
@@ -19,14 +22,15 @@
 docker compose up -d
 ```
 
-浏览器可打开 http://localhost:7475 （用户 `neo4j` / 密码见 `.env.example`）。  
-> 默认映射到主机 `7475/7688`，避免与本机其他 Neo4j 实例冲突。
+浏览器：http://localhost:7475 （用户 `neo4j` / 密码见 `.env.example`）  
+> 默认映射主机 `7475/7688`，避免与本机其他 Neo4j 冲突。
 
 ### 2. 配置环境
 
 ```bash
 cp .env.example .env
-# 可选：填写 LLM_API_KEY（OpenAI 兼容：OpenAI / DeepSeek / Moonshot 等）
+# 填写 LLM_API_KEY（DeepSeek / OpenAI 兼容均可）
+# 可选：修改 APP_SECRET，启用入库/评测鉴权
 ```
 
 ### 3. 安装依赖并灌库
@@ -34,7 +38,6 @@ cp .env.example .env
 ```bash
 cd backend
 python -m venv .venv
-# Windows:
 .venv\Scripts\activate
 pip install -r requirements.txt
 cd ..
@@ -50,37 +53,42 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 打开 http://127.0.0.1:8000
 
-## 目录结构
-
-```
-backend/app/
-  agent/          # LangGraph Agent + tools
-  rag/            # Neo4j / ingest / hybrid retriever / embeddings
-  main.py         # FastAPI
-backend/static/   # 客服前端
-data/knowledge/   # 样例知识库（NovaDesk SaaS）
-eval/run_eval.py  # 简易回归评测
-docker-compose.yml
-```
-
-## API
+## 关键 API
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/health` | Neo4j / LLM / 统计 |
-| POST | `/api/chat` | 智能客服对话 |
-| POST | `/api/knowledge/ingest` | 文本入库构图 |
-| POST | `/api/knowledge/upload` | 文件入库（md/txt/pdf） |
-| GET | `/api/graph/entities` | 图谱实体 |
+| GET | `/api/health` | Neo4j / LLM / 分类统计 |
+| POST | `/api/chat` | Agent 对话 |
+| POST | `/api/retrieve/compare` | 纯向量 vs GraphRAG 对比 |
+| POST | `/api/eval/run` | 回归评测（agent/retrieval/both） |
+| GET | `/api/knowledge/categories` | 知识库分类 |
+| GET | `/api/knowledge/documents` | 文档列表 |
+| POST | `/api/knowledge/ingest` | 文本入库（可鉴权） |
 
 ## 评测
 
 ```bash
 python eval/run_eval.py
+# 或在前端点击「运行评测」
+```
+
+报告输出：`eval/last_report.json`
+
+## 目录结构
+
+```
+backend/app/
+  agent/          # LangGraph Agent + tools
+  rag/            # Neo4j / ingest / hybrid / eval_suite
+  main.py         # FastAPI
+backend/static/   # 中台前端（对话/对比/评测）
+data/knowledge/   # 样例知识库
+eval/             # cases + reports
+docker-compose.yml
 ```
 
 ## 设计说明
 
-1. 客服知识不只是扁平文档，产品、政策、故障之间存在关联；用 Neo4j 做图扩展，可以补上纯向量检索容易漏掉的上下文。
-2. Agent 比单次 RAG 更灵活：先混合检索，再按需查实体；证据不足时可建工单转人工。
-3. 可继续扩展：Reranker、多租户、对话记忆、可观测性、评测集 CI。
+1. 客服知识有关系结构，Graph Expansion 可补纯向量漏检。  
+2. Agent 比单次 RAG 更适合多步决策与转人工。  
+3. A/B 对比与评测集，方便面试时讲清「为什么 Hybrid 更好」。  

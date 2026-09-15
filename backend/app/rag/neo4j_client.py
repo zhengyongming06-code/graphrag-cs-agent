@@ -101,6 +101,45 @@ class Neo4jClient:
             return {"documents": 0, "chunks": 0, "entities": 0, "relations": 0}
         return {k: int(v or 0) for k, v in rows[0].items()}
 
+    def category_stats(self) -> list[dict]:
+        return self.run(
+            """
+            MATCH (d:Document)
+            RETURN coalesce(d.category, 'general') AS category,
+                   count(d) AS documents
+            ORDER BY documents DESC
+            """
+        )
+
+    def list_documents(self, category: str | None = None, limit: int = 50) -> list[dict]:
+        if category:
+            return self.run(
+                """
+                MATCH (d:Document)
+                WHERE coalesce(d.category, 'general') = $category
+                OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+                RETURN d.id AS id, d.title AS title, d.source AS source,
+                       coalesce(d.category, 'general') AS category,
+                       count(c) AS chunks
+                ORDER BY d.title
+                LIMIT $limit
+                """,
+                category=category,
+                limit=limit,
+            )
+        return self.run(
+            """
+            MATCH (d:Document)
+            OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+            RETURN d.id AS id, d.title AS title, d.source AS source,
+                   coalesce(d.category, 'general') AS category,
+                   count(c) AS chunks
+            ORDER BY category, d.title
+            LIMIT $limit
+            """,
+            limit=limit,
+        )
+
 
 _neo4j: Neo4jClient | None = None
 

@@ -48,3 +48,13 @@ class HealthResponse(BaseModel):
     llm: str
     embedding: str
     stats: dict = {}
+    categories: list[dict] = []
+
+
+class CompareRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
+class EvalRequest(BaseModel):
+    mode: str = Field(default="agent", description="agent | retrieval | both")

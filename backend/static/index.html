@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NovaDesk · GraphRAG 智能客服</title>
+  <title>NovaDesk · GraphRAG Agent 中台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -18,7 +18,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <div class="brand-name">NovaDesk</div>
-          <div class="brand-sub">GraphRAG CS Agent · Neo4j</div>
+          <div class="brand-sub">GraphRAG Agent 中台 · Neo4j · LangGraph</div>
         </div>
       </div>
       <div class="status-pills" id="statusPills">
@@ -32,7 +32,7 @@
       <section class="panel chat-panel">
         <div class="panel-head">
           <h1>智能客服小舟</h1>
-          <p>混合检索（向量 + 关键词 + 图谱扩展）· LangGraph 工具调用</p>
+          <p>混合检索 + 图谱扩展 + LangGraph 工具编排 · 回答带 Citation / Tool Trace</p>
         </div>
         <div class="messages" id="messages"></div>
         <form class="composer" id="chatForm">
@@ -50,8 +50,8 @@
       <aside class="side">
         <section class="panel">
           <div class="panel-head">
-            <h2>知识库状态</h2>
-            <p>写入 Neo4j 的 Document / Chunk / Entity</p>
+            <h2>知识中台状态</h2>
+            <p>Document / Chunk / Entity · 多分类知识库</p>
           </div>
           <div class="stats" id="stats">
             <div class="stat"><span>Documents</span><strong id="statDocs">-</strong></div>
@@ -59,16 +59,48 @@
             <div class="stat"><span>Entities</span><strong id="statEntities">-</strong></div>
             <div class="stat"><span>Relations</span><strong id="statRels">-</strong></div>
           </div>
+          <div class="cat-list" id="catList"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>检索 A/B 对比</h2>
+            <p>纯向量 vs GraphRAG 混合召回</p>
+          </div>
+          <form class="ingest" id="compareForm">
+            <input id="compareQuery" placeholder="输入对比问题，如：Enterprise SLA" required />
+            <button type="submit">开始对比</button>
+          </form>
+          <pre class="trace-box" id="compareOut">等待对比…</pre>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>回归评测</h2>
+            <p>Agent 问答命中 + 检索覆盖对比</p>
+          </div>
+          <div class="btn-row">
+            <button type="button" id="evalBtn">运行评测</button>
+          </div>
+          <pre class="trace-box" id="evalOut">尚未运行</pre>
         </section>
 
         <section class="panel">
           <div class="panel-head">
             <h2>入库新知识</h2>
-            <p>实时切分、向量化、实体抽取入图</p>
+            <p>切分 · 向量化 · 实体抽取 · 分类落库</p>
           </div>
           <form class="ingest" id="ingestForm">
             <input name="title" placeholder="标题" required />
-            <textarea name="content" rows="5" placeholder="粘贴 FAQ / 政策 / 产品说明…" required></textarea>
+            <select name="category">
+              <option value="product">product</option>
+              <option value="support">support</option>
+              <option value="billing">billing</option>
+              <option value="sla">sla</option>
+              <option value="manual" selected>manual</option>
+            </select>
+            <textarea name="content" rows="4" placeholder="粘贴 FAQ / 政策 / 产品说明…" required></textarea>
+            <input name="adminToken" id="adminToken" placeholder="管理员 Token（可选，默认演示放行）" />
             <button type="submit">写入 Neo4j</button>
             <p class="hint" id="ingestHint"></p>
           </form>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,19 +12,24 @@ from app.config import get_settings
 from app.models.schemas import (
     ChatRequest,
     ChatResponse,
+    CompareRequest,
+    EvalRequest,
     HealthResponse,
     IngestResponse,
     IngestTextRequest,
 )
 from app.rag.embeddings import EmbeddingService
+from app.rag.eval_suite import load_cases, run_agent_eval, run_retrieval_eval
+from app.rag.hybrid_retriever import HybridGraphRetriever
 from app.rag.ingest import KnowledgeIngestor
 from app.rag.neo4j_client import get_neo4j
+from app.security import require_admin
 
 settings = get_settings()
 app = FastAPI(
     title="NovaDesk GraphRAG CS Agent",
-    description="Neo4j GraphRAG + LangGraph 智能客服 Agent",
-    version="1.0.0",
+    description="Neo4j GraphRAG + LangGraph 智能客服 Agent 中台",
+    version="1.1.0",
 )
 
 app.add_middleware(
@@ -54,12 +59,14 @@ def health() -> HealthResponse:
     emb = EmbeddingService()
     ok = neo4j.verify()
     stats = neo4j.stats() if ok else {}
+    categories = neo4j.category_stats() if ok else []
     return HealthResponse(
         status="ok" if ok else "degraded",
         neo4j="up" if ok else "down",
         llm="configured" if settings.llm_ready else "missing_key",
         embedding=emb.mode,
         stats=stats,
+        categories=categories,
     )
 
 
@@ -71,8 +78,35 @@ def chat(req: ChatRequest) -> ChatResponse:
     return get_agent().chat(req.message, session_id=req.session_id)
 
 
+@app.post("/api/retrieve/compare")
+def compare_retrieval(req: CompareRequest) -> dict:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    return HybridGraphRetriever().compare(req.query, top_k=req.top_k)
+
+
+@app.get("/api/knowledge/categories")
+def knowledge_categories() -> list[dict]:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    return neo4j.category_stats()
+
+
+@app.get("/api/knowledge/documents")
+def knowledge_documents(category: str | None = None, limit: int = 50) -> list[dict]:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    return neo4j.list_documents(category=category, limit=limit)
+
+
 @app.post("/api/knowledge/ingest", response_model=IngestResponse)
-def ingest_text(req: IngestTextRequest) -> IngestResponse:
+def ingest_text(
+    req: IngestTextRequest,
+    _: None = Depends(require_admin),
+) -> IngestResponse:
     neo4j = get_neo4j()
     if not neo4j.verify():
         raise HTTPException(status_code=503, detail="Neo4j 未连接")
@@ -97,6 +131,7 @@ def ingest_text(req: IngestTextRequest) -> IngestResponse:
 async def ingest_upload(
     file: UploadFile = File(...),
     category: str = "upload",
+    _: None = Depends(require_admin),
 ) -> IngestResponse:
     neo4j = get_neo4j()
     if not neo4j.verify():
@@ -132,7 +167,10 @@ def knowledge_stats() -> dict:
     neo4j = get_neo4j()
     if not neo4j.verify():
         raise HTTPException(status_code=503, detail="Neo4j 未连接")
-    return neo4j.stats()
+    return {
+        **neo4j.stats(),
+        "categories": neo4j.category_stats(),
+    }
 
 
 @app.get("/api/graph/entities")
@@ -151,6 +189,28 @@ def list_entities(limit: int = 50) -> list[dict]:
         """,
         limit=limit,
     )
+
+
+@app.get("/api/eval/cases")
+def eval_cases() -> list[dict]:
+    return load_cases()
+
+
+@app.post("/api/eval/run")
+def eval_run(
+    req: EvalRequest,
+    _: None = Depends(require_admin),
+) -> dict:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    mode = (req.mode or "agent").lower()
+    out: dict = {"mode": mode}
+    if mode in {"agent", "both"}:
+        out["agent"] = run_agent_eval(get_agent())
+    if mode in {"retrieval", "both"}:
+        out["retrieval"] = run_retrieval_eval()
+    return out
 
 
 @app.get("/")

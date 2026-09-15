@@ -40,6 +40,43 @@ class HybridGraphRetriever:
         expanded = self._graph_expand(merged, query=query, limit=top_k)
         return expanded[:top_k]
 
+    def retrieve_vector_only(self, query: str, top_k: int = 6) -> list[RetrievedChunk]:
+        return self._vector_search(query, k=top_k)[:top_k]
+
+    def compare(self, query: str, top_k: int = 5) -> dict:
+        """A/B compare: pure vector vs hybrid GraphRAG."""
+        vector_hits = self.retrieve_vector_only(query, top_k=top_k)
+        hybrid_hits = self.retrieve(query, top_k=top_k)
+        vec_ids = {h.chunk_id for h in vector_hits}
+        hyb_ids = {h.chunk_id for h in hybrid_hits}
+        only_hybrid = sorted(hyb_ids - vec_ids)
+        only_vector = sorted(vec_ids - hyb_ids)
+        return {
+            "query": query,
+            "top_k": top_k,
+            "vector_only": [self._hit_dict(h) for h in vector_hits],
+            "hybrid_graphrag": [self._hit_dict(h) for h in hybrid_hits],
+            "overlap": len(vec_ids & hyb_ids),
+            "only_in_hybrid": only_hybrid,
+            "only_in_vector": only_vector,
+            "summary": (
+                f"hybrid 独有 {len(only_hybrid)} 条（多来自图谱扩展/关键词补召回）；"
+                f"重合 {len(vec_ids & hyb_ids)} 条。"
+            ),
+        }
+
+    @staticmethod
+    def _hit_dict(hit: RetrievedChunk) -> dict:
+        return {
+            "chunk_id": hit.chunk_id,
+            "title": hit.title,
+            "source": hit.source,
+            "score": round(hit.score, 4),
+            "channel": hit.channel,
+            "snippet": hit.text[:220].replace("\n", " "),
+            "entities": hit.entities[:6],
+        }
+
     def entity_lookup(self, name: str, limit: int = 8) -> list[dict]:
         rows = self.neo4j.run(
             """
