@@ -94,8 +94,8 @@ def main():
     )
     add_bullet(
         doc,
-        "GraphRAG 知识工程：掌握文档解析、语义切分、Embedding、Hybrid Retrieval；"
-        "能基于 Neo4j 构建企业知识图谱并完成 Graph Expansion / 关系增强召回。",
+        "GraphRAG 知识工程：Neo4j Vector Index + 词面召回 + 1-hop Graph Expansion；分数融合采用 RRF（k=60）；"
+        "能基于自建评测集计算 Hit@3，并实测检索/端到端延迟。",
     )
     add_bullet(
         doc,
@@ -115,59 +115,53 @@ def main():
     add_body(doc, "项目链接：https://github.com/zhengyongming06-code/graphrag-cs-agent", size=10)
     add_body(
         doc,
-        "项目概述：面向企业私域知识治理与售后智能化场景，独立打造“知识中台 + 决策 Agent”一体化方案。"
-        "以 GraphRAG 为检索内核、以 LangGraph 为编排中枢，打通知识入库、混合召回、工具调用、引用溯源与转人工升级的完整业务闭环，"
-        "显著区别于传统单轮 RAG Demo。",
+        "项目概述：面向企业知识库问答与售后支持，独立实现 GraphRAG 客服 Agent。"
+        "检索层为 Vector + Lexical + 1-hop 图谱扩展，融合算法为 RRF（k=60）；编排层为 LangGraph 多工具闭环（检索/实体查询/转人工工单）。"
+        "配套 FastAPI、Docker Neo4j、引用溯源与自建评测脚本，仓库可复现实验。",
     )
     add_body(doc, "核心成果：", bold=True)
     add_bullet(
         doc,
-        "知识中台建模：设计 Document–Chunk–Entity 多层图谱 Schema 与 HAS_CHUNK / MENTIONS / RELATED_TO 关系体系，"
-        "完成非结构化文档的结构化升级，沉淀可复用的企业知识资产网络。",
+        "图谱建模：Document–Chunk–Entity（HAS_CHUNK / MENTIONS / RELATED_TO）；图扩展为 1-hop 共现实体邻居，避免 2-hop 引入噪声。",
     )
     add_bullet(
         doc,
-        "GraphRAG 检索引擎：自研 Vector + Lexical + Graph Expansion 三路融合召回与分数融合策略，"
-        "强化跨实体、跨政策类复杂问句的证据完整性，突破纯向量检索“语义近、关系断”的瓶颈。",
+        "检索与评测：三路召回经 RRF 融合。自建 8 条 FAQ 评测集，Hit@3 纯向量 50% → Hybrid GraphRAG 100%（+50pp）；"
+        "检索 P95 约 45ms，端到端对话 P95 约 5.0s（含 DeepSeek 推理）。指标见 eval/metrics.json，非 Ragas 包装分数。",
     )
     add_bullet(
         doc,
-        "Agent 决策中枢：基于 LangGraph 构建 ReAct 多工具编排（hybrid_search / entity_lookup / create_ticket），"
-        "实现动态规划式问答；引入 Citation Grounding 与低置信转人工机制，构建防幻觉护栏。",
+        "Agent：LangGraph ReAct，工具 hybrid_search / entity_lookup / create_ticket；回答带 Citation 与 Tool Trace；证据不足转人工。同集 Agent 答题 8/8 命中关键事实。",
     )
     add_bullet(
         doc,
-        "平台化交付：完成 API 服务化（对话/入库/图谱查询/健康探针）、Docker 一键基础设施拉起、在线知识运营与回归评测，"
-        "形成可对外演示、可二次扩展的 Agent 工程资产。",
+        "工程：FastAPI（对话/入库/A/B 对比/评测）、Docker 拉起 Neo4j、分类知识库与可选 X-Admin-Token 写保护。",
     )
 
     # Project 2 — Agent落地，但不写 Dify
     add_body(doc, "项目二：DeepResearch 多智能步竞品情报 Agent 落地系统", bold=True, size=11)
     add_body(
         doc,
-        "技术栈：Python / LangGraph / LangChain / Tavily Search API / 网页解析与清洗 / Map-Reduce 报告生成",
+        "技术栈：Python / LangGraph / LangChain / Tavily Search API / 网页正文抽取 / Map-Reduce 摘要",
         size=10,
     )
     add_body(
         doc,
-        "项目概述：针对商业调研“信息碎片化、人工周期长、结论难沉淀”痛点，落地一套可复用的 Deep Research Agent。"
-        "以 LangGraph 多步状态机为控制面，以搜索/抓取/提炼工具为执行面，实现从选题到成稿的自动化情报生产闭环。",
+        "项目概述：将竞品调研拆成可执行 Agent 状态机：问题拆解 → 检索规划 → Tavily 搜索 → 正文抽取 → 分段摘要 → 汇总成稿。"
+        "定位是 Agent 落地，而不是单次 Chat。成本与压缩比未做生产级台账，不编造 Token/$ 数字。",
     )
     add_body(doc, "核心成果：", bold=True)
     add_bullet(
         doc,
-        "多智能步 Agent 编排：设计“意图拆解→检索规划→公网采集→正文净化→多源汇总→报告生成”状态机流水线，"
-        "将一次性 Prompt 调用升级为可规划、可回溯、可扩展的 Agent 生产能力。",
+        "编排：LangGraph 多步状态机，每步有明确输入输出；失败可中断而非一次 Prompt 撑完全程。",
     )
     add_bullet(
         doc,
-        "实时情报工具矩阵：集成 Tavily 搜索与网页解析链路，突破模型参数知识的时效上限；"
-        "对长页面做结构化清洗与噪声抑制，提升有效上下文密度与证据可用性。",
+        "信息获取：Tavily 拿实时检索结果；页面清洗用正文抽取（去导航/广告块的可读性启发式）后再送模型，避免整页 HTML 进上下文。",
     )
     add_bullet(
         doc,
-        "长上下文治理与成稿：采用 Map-Reduce 分层压缩与要点对齐，抑制 Token 膨胀与关键信息淹没，"
-        "自动输出可直接用于汇报的结构化 Markdown 竞品情报报告，完成调研业务的 Agent 化落地。",
+        "长文：多源页面先 Map 再 Reduce 汇总，控制单次上下文长度；输出结构化 Markdown 报告。面试可讲方法，压缩率需按任务实测。",
     )
 
     add_section(doc, "个人优势")

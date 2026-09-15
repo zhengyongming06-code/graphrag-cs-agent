@@ -19,7 +19,7 @@ from app.models.schemas import (
     IngestTextRequest,
 )
 from app.rag.embeddings import EmbeddingService
-from app.rag.eval_suite import load_cases, run_agent_eval, run_retrieval_eval
+from app.rag.eval_suite import load_cases, run_agent_eval, run_full_metrics, run_retrieval_eval
 from app.rag.hybrid_retriever import HybridGraphRetriever
 from app.rag.ingest import KnowledgeIngestor
 from app.rag.neo4j_client import get_neo4j
@@ -206,6 +206,8 @@ def eval_run(
         raise HTTPException(status_code=503, detail="Neo4j 未连接")
     mode = (req.mode or "agent").lower()
     out: dict = {"mode": mode}
+    if mode in {"metrics", "full"}:
+        return run_full_metrics()
     if mode in {"agent", "both"}:
         out["agent"] = run_agent_eval(get_agent())
     if mode in {"retrieval", "both"}:

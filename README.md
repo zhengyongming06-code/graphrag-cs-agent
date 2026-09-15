@@ -5,7 +5,7 @@
 ## 能力一览（可演示）
 
 - GraphRAG 知识中台：`Document / Chunk / Entity` + `HAS_CHUNK / MENTIONS / RELATED_TO`
-- 三路融合检索：Vector Index + Lexical + Graph Expansion
+- 三路融合检索：Vector Index + Lexical + **1-hop** Graph Expansion，分数融合 **RRF(k=60)**
 - LangGraph Agent：`hybrid_search` / `entity_lookup` / `create_ticket`
 - **检索 A/B 对比**：纯向量 vs Hybrid GraphRAG（`/api/retrieve/compare`）
 - **回归评测**：Agent 命中率 + 检索覆盖对比（`/api/eval/run`）
@@ -52,6 +52,25 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 打开 http://127.0.0.1:8000
+
+## 实测指标（自建 8 条评测集）
+
+```bash
+python eval/run_eval.py
+```
+
+结果写入 `eval/metrics.json`。
+
+| 指标 | 数值 | 说明 |
+|------|------|------|
+| Hit@3 纯向量 | 50% | Top-3 是否覆盖金标关键词/文档 |
+| Hit@3 Hybrid GraphRAG | 100% | Vector + Lexical + 1-hop + RRF |
+| Hit@3 提升 | +50pp | 相对纯向量 |
+| 检索 P95 | ~45ms | 不含 LLM |
+| 端到端对话 P95 | ~5.0s | 含 DeepSeek Tool Calling |
+| Agent 事实命中 | 8/8 | 答案或引用含关键事实 |
+
+这是自建 **keyword Hit@3**，不是 Ragas Faithfulness，面试不要混称。
 
 ## 关键 API
 

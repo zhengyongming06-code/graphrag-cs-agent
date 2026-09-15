@@ -3,30 +3,56 @@
     "id": "product_modules",
     "q": "NovaDesk 有哪些核心模块？",
     "expect_any": ["NovaBot", "NovaFlow", "NovaInsight"],
+    "gold_title": "01_product_overview",
     "category": "product"
   },
   {
     "id": "login_fail",
     "q": "登录失败怎么处理？",
     "expect_any": ["激活", "SSO", "锁定"],
+    "gold_title": "02_login_permissions",
     "category": "support"
   },
   {
     "id": "refund_policy",
     "q": "退款政策是什么？",
     "expect_any": ["7 日", "7日", "退款"],
+    "gold_title": "03_billing_refund",
     "category": "billing"
   },
   {
     "id": "enterprise_sla",
     "q": "Enterprise 的 SLA 首响多久？",
     "expect_any": ["5 分钟", "5分钟"],
+    "gold_title": "04_bot_sla",
     "category": "sla"
   },
   {
     "id": "data_retention",
     "q": "退订后数据保留多久？",
     "expect_any": ["30 天", "30天"],
+    "gold_title": "03_billing_refund",
     "category": "billing"
+  },
+  {
+    "id": "sso_plan",
+    "q": "哪个套餐支持 SSO？",
+    "expect_any": ["Pro", "Enterprise", "SSO"],
+    "gold_title": "01_product_overview",
+    "category": "product"
+  },
+  {
+    "id": "bot_handoff",
+    "q": "NovaBot 什么情况转人工？",
+    "expect_any": ["转人工", "低置信度", "退款"],
+    "gold_title": "04_bot_sla",
+    "category": "sla"
+  },
+  {
+    "id": "role_kb",
+    "q": "谁可以修改知识库？",
+    "expect_any": ["Admin", "Owner"],
+    "gold_title": "02_login_permissions",
+    "category": "support"
   }
 ]

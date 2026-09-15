@@ -7,24 +7,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app.rag.eval_suite import run_agent_eval, run_retrieval_eval
+from app.rag.eval_suite import run_full_metrics
 
 
 def main() -> None:
-    agent_report = run_agent_eval()
-    retrieval_report = run_retrieval_eval()
-    print(
-        f"Agent {agent_report['passed']}/{agent_report['total']} "
-        f"pass_rate={agent_report['pass_rate']}"
-    )
-    print(
-        f"Retrieval hybrid_unique_wins="
-        f"{retrieval_report['hybrid_unique_wins']}/{retrieval_report['total']}"
-    )
-    for row in agent_report["cases"]:
-        print(("PASS" if row["pass"] else "FAIL"), row["q"])
-    out = ROOT / "eval" / "last_report.json"
-    print(f"report -> {out}")
+    report = run_full_metrics()
+    r = report["retrieval"]
+    lat = report["latency"]
+    ag = report["agent"]
+    print(f"Hit@3 vector={r['vector_hit_rate@3']} hybrid={r['hybrid_hit_rate@3']} lift={r['hit_rate@3_lift']}")
+    print(f"Retrieve p50={lat['retrieve_ms']['p50']}ms p95={lat['retrieve_ms']['p95']}ms")
+    print(f"E2E chat p50={lat['e2e_chat_ms']['p50']}ms p95={lat['e2e_chat_ms']['p95']}ms")
+    print(f"Agent pass_rate={ag['pass_rate']} ({ag['passed']}/{ag['total']})")
+    print("report ->", ROOT / "eval" / "metrics.json")
 
 
 if __name__ == "__main__":

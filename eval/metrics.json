@@ -1,0 +1,122 @@
+{
+  "generated_at": "2026-09-15T07:06:04.384205+00:00",
+  "note": "自建评测集 keyword Hit@3 + 实测延迟；未接入 Ragas/TruLens，面试勿称为 Ragas 分数。",
+  "retrieval": {
+    "generated_at": "2026-09-15T07:05:09.695619+00:00",
+    "method": "keyword/gold-title Hit@3 on 自建评测集（非 Ragas）",
+    "fusion": "RRF(k=60)",
+    "graph_hops": 1,
+    "hybrid_unique_wins": 4,
+    "vector_hit_rate@3": 0.5,
+    "hybrid_hit_rate@3": 1.0,
+    "hit_rate@3_lift": 0.5,
+    "compare_latency_ms": {
+      "p50": 36.6031,
+      "p95": 406.2632,
+      "mean": 82.15
+    },
+    "total": 8,
+    "cases": [
+      {
+        "id": "product_modules",
+        "q": "NovaDesk 有哪些核心模块？",
+        "vector_hit@3": false,
+        "hybrid_hit@3": true,
+        "vector_cover": false,
+        "hybrid_cover": true,
+        "only_in_hybrid": 3,
+        "overlap": 2
+      },
+      {
+        "id": "login_fail",
+        "q": "登录失败怎么处理？",
+        "vector_hit@3": true,
+        "hybrid_hit@3": true,
+        "vector_cover": true,
+        "hybrid_cover": true,
+        "only_in_hybrid": 1,
+        "overlap": 4
+      },
+      {
+        "id": "refund_policy",
+        "q": "退款政策是什么？",
+        "vector_hit@3": true,
+        "hybrid_hit@3": true,
+        "vector_cover": true,
+        "hybrid_cover": true,
+        "only_in_hybrid": 2,
+        "overlap": 3
+      },
+      {
+        "id": "enterprise_sla",
+        "q": "Enterprise 的 SLA 首响多久？",
+        "vector_hit@3": false,
+        "hybrid_hit@3": true,
+        "vector_cover": false,
+        "hybrid_cover": true,
+        "only_in_hybrid": 2,
+        "overlap": 3
+      },
+      {
+        "id": "data_retention",
+        "q": "退订后数据保留多久？",
+        "vector_hit@3": true,
+        "hybrid_hit@3": true,
+        "vector_cover": true,
+        "hybrid_cover": true,
+        "only_in_hybrid": 0,
+        "overlap": 5
+      },
+      {
+        "id": "sso_plan",
+        "q": "哪个套餐支持 SSO？",
+        "vector_hit@3": true,
+        "hybrid_hit@3": true,
+        "vector_cover": true,
+        "hybrid_cover": true,
+        "only_in_hybrid": 3,
+        "overlap": 2
+      },
+      {
+        "id": "bot_handoff",
+        "q": "NovaBot 什么情况转人工？",
+        "vector_hit@3": false,
+        "hybrid_hit@3": true,
+        "vector_cover": false,
+        "hybrid_cover": true,
+        "only_in_hybrid": 0,
+        "overlap": 5
+      },
+      {
+        "id": "role_kb",
+        "q": "谁可以修改知识库？",
+        "vector_hit@3": false,
+        "hybrid_hit@3": true,
+        "vector_cover": false,
+        "hybrid_cover": true,
+        "only_in_hybrid": 4,
+        "overlap": 1
+      }
+    ]
+  },
+  "latency": {
+    "generated_at": "2026-09-15T07:05:39.191449+00:00",
+    "retrieve_ms": {
+      "n": 24,
+      "p50": 29.506,
+      "p95": 44.8847,
+      "mean": 30.74
+    },
+    "e2e_chat_ms": {
+      "n": 8,
+      "p50": 3513.6559,
+      "p95": 4967.5501,
+      "mean": 3564.29
+    }
+  },
+  "agent": {
+    "passed": 8,
+    "total": 8,
+    "pass_rate": 1.0
+  }
+}

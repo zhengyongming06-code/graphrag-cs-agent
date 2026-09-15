@@ -17,12 +17,49 @@ class RetrievedChunk:
     entities: list[dict] = field(default_factory=list)
 
 
+RRF_K = 60
+
+
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[RetrievedChunk]],
+    rrf_k: int = RRF_K,
+) -> list[RetrievedChunk]:
+    """RRF: score = Σ 1 / (k + rank). Rank is 1-indexed. Score-scale independent."""
+    bucket: dict[str, RetrievedChunk] = {}
+    scores: dict[str, float] = {}
+    channels: dict[str, set[str]] = {}
+    for ranked in ranked_lists:
+        for rank, hit in enumerate(ranked, start=1):
+            scores[hit.chunk_id] = scores.get(hit.chunk_id, 0.0) + 1.0 / (rrf_k + rank)
+            channels.setdefault(hit.chunk_id, set()).add(hit.channel.split("+")[0])
+            if hit.chunk_id not in bucket:
+                bucket[hit.chunk_id] = hit
+            elif hit.entities and not bucket[hit.chunk_id].entities:
+                bucket[hit.chunk_id].entities = hit.entities
+    fused: list[RetrievedChunk] = []
+    for cid, base in bucket.items():
+        fused.append(
+            RetrievedChunk(
+                chunk_id=base.chunk_id,
+                title=base.title,
+                text=base.text,
+                source=base.source,
+                score=scores[cid],
+                channel="+".join(sorted(channels[cid])),
+                entities=base.entities,
+            )
+        )
+    fused.sort(key=lambda x: x.score, reverse=True)
+    return fused
+
+
 class HybridGraphRetriever:
     """
     GraphRAG hybrid retrieval:
     1) Neo4j vector similarity on Chunk embeddings
     2) Lexical / keyword fallback over chunk text
-    3) Graph expansion via MENTIONS / RELATED_TO neighbors
+    3) 1-hop graph expansion via shared MENTIONS entities
+    Fusion: Reciprocal Rank Fusion (RRF, k=60)
     """
 
     def __init__(
@@ -34,11 +71,13 @@ class HybridGraphRetriever:
         self.embeddings = embeddings or EmbeddingService()
 
     def retrieve(self, query: str, top_k: int = 6) -> list[RetrievedChunk]:
-        vec_hits = self._vector_search(query, k=top_k)
-        lex_hits = self._lexical_search(query, k=top_k)
-        merged = self._merge(vec_hits + lex_hits)
-        expanded = self._graph_expand(merged, query=query, limit=top_k)
-        return expanded[:top_k]
+        pool = max(top_k * 2, 8)
+        vec_hits = self._vector_search(query, k=pool)
+        lex_hits = self._lexical_search(query, k=pool)
+        seed = reciprocal_rank_fusion([vec_hits, lex_hits])[:4]
+        graph_hits = self._graph_neighbors(seed, query=query, limit=pool)
+        fused = reciprocal_rank_fusion([vec_hits, lex_hits, graph_hits])
+        return fused[:top_k]
 
     def retrieve_vector_only(self, query: str, top_k: int = 6) -> list[RetrievedChunk]:
         return self._vector_search(query, k=top_k)[:top_k]
@@ -59,9 +98,11 @@ class HybridGraphRetriever:
             "overlap": len(vec_ids & hyb_ids),
             "only_in_hybrid": only_hybrid,
             "only_in_vector": only_vector,
+            "fusion": "RRF(k=60)",
+            "graph_hops": 1,
             "summary": (
-                f"hybrid 独有 {len(only_hybrid)} 条（多来自图谱扩展/关键词补召回）；"
-                f"重合 {len(vec_ids & hyb_ids)} 条。"
+                f"融合=RRF(k=60)，图扩展=1-hop MENTIONS；"
+                f"hybrid 独有 {len(only_hybrid)} 条，重合 {len(vec_ids & hyb_ids)} 条。"
             ),
         }
 
@@ -203,31 +244,10 @@ class HybridGraphRetriever:
         scored.sort(key=lambda x: x.score, reverse=True)
         return scored[:k]
 
-    def _merge(self, hits: list[RetrievedChunk]) -> list[RetrievedChunk]:
-        bucket: dict[str, RetrievedChunk] = {}
-        for hit in hits:
-            if hit.chunk_id not in bucket:
-                bucket[hit.chunk_id] = hit
-                continue
-            cur = bucket[hit.chunk_id]
-            # Weighted fusion
-            fused = 0.65 * max(cur.score, hit.score) + 0.35 * min(cur.score, hit.score)
-            channel = f"{cur.channel}+{hit.channel}"
-            entities = cur.entities or hit.entities
-            bucket[hit.chunk_id] = RetrievedChunk(
-                chunk_id=cur.chunk_id,
-                title=cur.title,
-                text=cur.text,
-                source=cur.source,
-                score=fused,
-                channel=channel,
-                entities=entities,
-            )
-        return sorted(bucket.values(), key=lambda x: x.score, reverse=True)
-
-    def _graph_expand(
+    def _graph_neighbors(
         self, seeds: list[RetrievedChunk], query: str, limit: int
     ) -> list[RetrievedChunk]:
+        """1-hop: seed -[:MENTIONS]-> Entity <-[:MENTIONS]- neighbor Chunk."""
         if not seeds:
             return []
         seed_ids = [s.chunk_id for s in seeds[:4]]
@@ -241,29 +261,23 @@ class HybridGraphRetriever:
                    nbr.source AS source, shared,
                    collect({name: ent.name, type: ent.type}) AS entities
             ORDER BY shared DESC
-            LIMIT 8
+            LIMIT $limit
             """,
             seed_ids=seed_ids,
+            limit=limit,
         )
-        expanded = list(seeds)
-        seen = {s.chunk_id for s in seeds}
+        hits: list[RetrievedChunk] = []
         for row in rows:
-            cid = row["chunk_id"]
-            if cid in seen:
-                continue
             text = row.get("text") or ""
-            score = 0.25 * float(row.get("shared") or 1) + 0.4 * lexical_score(query, text)
-            expanded.append(
+            hits.append(
                 RetrievedChunk(
-                    chunk_id=cid,
+                    chunk_id=row["chunk_id"],
                     title=row.get("title") or "",
                     text=text,
                     source=row.get("source") or "",
-                    score=score,
-                    channel="graph",
+                    score=float(row.get("shared") or 0) + lexical_score(query, text),
+                    channel="graph-1hop",
                     entities=[e for e in (row.get("entities") or []) if e.get("name")],
                 )
             )
-            seen.add(cid)
-        expanded.sort(key=lambda x: x.score, reverse=True)
-        return expanded[:limit]
+        return hits

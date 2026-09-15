@@ -206,19 +206,21 @@ evalBtn.addEventListener("click", async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
     const agent = data.agent || {};
-    const retrieval = data.retrieval || {};
-    const lines = [
-      `Agent: ${agent.passed ?? "-"}/${agent.total ?? "-"}  pass_rate=${agent.pass_rate ?? "-"}`,
-      `Retrieval hybrid_unique_wins: ${retrieval.hybrid_unique_wins ?? "-"} / ${retrieval.total ?? "-"}`,
-      "",
-      "Agent cases:",
-      ...((agent.cases || []).map((c) => `  ${c.pass ? "PASS" : "FAIL"} · ${c.q}`)),
-      "",
-      "Retrieval cases:",
-      ...((retrieval.cases || []).map(
-        (c) => `  vec=${c.vector_cover} hyb=${c.hybrid_cover} · ${c.q}`
-      )),
-    ];
+            const r = data.retrieval || agent.retrieval || {};
+            const lines = [
+              `Agent: ${agent.passed ?? "-"}/${agent.total ?? "-"}  pass_rate=${agent.pass_rate ?? "-"}`,
+              `Hit@3 vector=${r["vector_hit_rate@3"] ?? "-"} hybrid=${r["hybrid_hit_rate@3"] ?? "-"} lift=${r["hit_rate@3_lift"] ?? "-"}`,
+              `fusion=${r.fusion || "RRF"} hops=${r.graph_hops ?? 1}`,
+              `Retrieval hybrid_unique_wins: ${r.hybrid_unique_wins ?? "-"} / ${r.total ?? "-"}`,
+              "",
+              "Agent cases:",
+              ...((agent.cases || []).map((c) => `  ${c.pass ? "PASS" : "FAIL"} · ${c.q}`)),
+              "",
+              "Retrieval cases:",
+              ...((r.cases || []).map(
+                (c) => `  vec@3=${c["vector_hit@3"] ?? c.vector_cover} hyb@3=${c["hybrid_hit@3"] ?? c.hybrid_cover} · ${c.q}`
+              )),
+            ];
     evalOut.textContent = lines.join("\n");
   } catch (err) {
     evalOut.textContent = err.message;
