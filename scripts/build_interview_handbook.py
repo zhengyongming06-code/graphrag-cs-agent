@@ -111,7 +111,7 @@ def build():
     add_title(doc, "AI Agent 实习面试学习手册")
     add_subtitle(
         doc,
-        "结合项目：NovaDesk GraphRAG CS Agent  |  github.com/zhengyongming06-code/graphrag-cs-agent",
+        "结合项目：知识库 GraphRAG 客服  |  github.com/zhengyongming06-code/graphrag-cs-agent",
     )
     add_body(
         doc,

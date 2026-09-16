@@ -58,9 +58,11 @@ class Neo4jClient:
             "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (c:Chunk) REQUIRE c.id IS UNIQUE",
             "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE",
             "CREATE CONSTRAINT ticket_id IF NOT EXISTS FOR (t:Ticket) REQUIRE t.id IS UNIQUE",
+            "CREATE CONSTRAINT session_id IF NOT EXISTS FOR (s:Session) REQUIRE s.id IS UNIQUE",
             "CREATE INDEX chunk_source IF NOT EXISTS FOR (c:Chunk) ON (c.source)",
             "CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.name)",
             "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)",
+            "CREATE INDEX ticket_status IF NOT EXISTS FOR (t:Ticket) ON (t.status)",
         ]
         for stmt in statements:
             self.run(stmt)
@@ -139,6 +141,73 @@ class Neo4jClient:
             """,
             limit=limit,
         )
+
+    def list_tickets(self, status: str | None = None, limit: int = 30) -> list[dict]:
+        if status:
+            return self.run(
+                """
+                MATCH (t:Ticket)
+                WHERE t.status = $status
+                RETURN t.id AS id, t.subject AS subject, t.detail AS detail,
+                       t.priority AS priority, t.status AS status,
+                       toString(t.created_at) AS created_at
+                ORDER BY t.created_at DESC
+                LIMIT $limit
+                """,
+                status=status,
+                limit=limit,
+            )
+        return self.run(
+            """
+            MATCH (t:Ticket)
+            RETURN t.id AS id, t.subject AS subject, t.detail AS detail,
+                   t.priority AS priority, t.status AS status,
+                   toString(t.created_at) AS created_at
+            ORDER BY t.created_at DESC
+            LIMIT $limit
+            """,
+            limit=limit,
+        )
+
+    def update_ticket(self, ticket_id: str, status: str) -> dict | None:
+        rows = self.run(
+            """
+            MATCH (t:Ticket {id: $id})
+            SET t.status = $status, t.updated_at = datetime()
+            RETURN t.id AS id, t.subject AS subject, t.status AS status,
+                   t.priority AS priority, t.detail AS detail,
+                   toString(t.created_at) AS created_at
+            """,
+            id=ticket_id,
+            status=status,
+        )
+        return rows[0] if rows else None
+
+    def subgraph(self, limit: int = 40) -> dict:
+        nodes = self.run(
+            """
+            MATCH (e:Entity)
+            OPTIONAL MATCH (e)-[:RELATED_TO]-(other:Entity)
+            RETURN e.id AS id, e.name AS name, e.type AS type,
+                   count(DISTINCT other) AS degree
+            ORDER BY degree DESC
+            LIMIT $limit
+            """,
+            limit=limit,
+        )
+        ids = [n["id"] for n in nodes]
+        edges = []
+        if ids:
+            edges = self.run(
+                """
+                MATCH (a:Entity)-[r:RELATED_TO]-(b:Entity)
+                WHERE a.id IN $ids AND b.id IN $ids AND a.id < b.id
+                RETURN a.id AS source, b.id AS target,
+                       sum(coalesce(r.weight, 1)) AS weight
+                """,
+                ids=ids,
+            )
+        return {"nodes": nodes, "edges": edges}
 
 
 _neo4j: Neo4jClient | None = None

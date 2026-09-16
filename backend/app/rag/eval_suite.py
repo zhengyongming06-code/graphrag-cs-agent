@@ -16,11 +16,6 @@ CASES_PATH = EVAL_DIR / "cases.json"
 REPORT_PATH = EVAL_DIR / "last_report.json"
 METRICS_PATH = EVAL_DIR / "metrics.json"
 
-ROOT = Path(__file__).resolve().parents[3]
-EVAL_DIR = ROOT / "eval"
-CASES_PATH = EVAL_DIR / "cases.json"
-REPORT_PATH = EVAL_DIR / "last_report.json"
-
 DEFAULT_CASES = [
     {
         "id": "product_modules",
@@ -38,18 +33,6 @@ DEFAULT_CASES = [
         "id": "refund_policy",
         "q": "退款政策是什么？",
         "expect_any": ["7 日", "7日", "退款"],
-        "category": "billing",
-    },
-    {
-        "id": "enterprise_sla",
-        "q": "Enterprise 的 SLA 首响多久？",
-        "expect_any": ["5 分钟", "5分钟"],
-        "category": "sla",
-    },
-    {
-        "id": "data_retention",
-        "q": "退订后数据保留多久？",
-        "expect_any": ["30 天", "30天"],
         "category": "billing",
     },
 ]

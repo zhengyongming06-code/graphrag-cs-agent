@@ -1,1 +1,1 @@
-# NovaDesk GraphRAG CS Agent package
+# 知识库客服

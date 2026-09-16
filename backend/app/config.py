@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     app_port: int = 8000
     app_secret: str = "change-me-in-production"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000"
+    confidence_threshold: float = 0.28
+    max_history_turns: int = 6
+    use_llm_router: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:

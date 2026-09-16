@@ -22,6 +22,11 @@ def main() -> None:
 
     emb = EmbeddingService(settings)
     neo4j.init_schema(emb.dim)
+    if "--reset" in sys.argv:
+        neo4j.run("MATCH (d:Document) DETACH DELETE d")
+        neo4j.run("MATCH (c:Chunk) DETACH DELETE c")
+        neo4j.run("MATCH (e:Entity) DETACH DELETE e")
+        print("[RESET] 已清空 Document / Chunk / Entity")
     ingestor = KnowledgeIngestor(neo4j, emb)
 
     kb_dir = ROOT / "data" / "knowledge"
@@ -45,6 +50,7 @@ def main() -> None:
             content=text,
             source=path.name,
             category=category_map.get(path.stem, "general"),
+            document_id=path.stem,
         )
         total_chunks += result.chunk_count
         total_entities += result.entity_count

@@ -1,143 +1,263 @@
 from __future__ import annotations
 
-from typing import Annotated, TypedDict
+from typing import Any, Iterator, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
-from langgraph.graph.message import add_messages
-from langgraph.prebuilt import ToolNode
 
-from app.agent.prompts import SYSTEM_PROMPT
+from app.agent.grounding import evidence_confidence, should_escalate
+from app.agent.memory import SessionMemory
+from app.agent.prompts import ANSWER_PROMPT, SYSTEM_PROMPT
+from app.agent.router import classify_intent
 from app.agent.tools import AgentTools
 from app.config import get_settings
-from app.models.schemas import Citation, ChatResponse
+from app.models.schemas import ChatResponse, Citation, PipelineStep
+from app.rag.hybrid_retriever import RetrievedChunk
 
 
-class AgentState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
+class CSState(TypedDict, total=False):
     question: str
     session_id: str
+    history: str
+    intent: str
+    intent_source: str
+    evidence: str
+    confidence: float
+    grounded: bool
+    should_escalate: bool
+    citations: list[dict[str, Any]]
+    tool_trace: list[str]
+    pipeline: list[dict[str, Any]]
+    answer: str
+    ticket_id: str
+    mode: str
 
 
 class CustomerServiceAgent:
+    """客服 SOP 状态机：memory → route → retrieve → ground → act → persist。"""
+
     def __init__(self) -> None:
         self.settings = get_settings()
         self.tools_impl = AgentTools()
-        self._graph = None
-        self._build_graph()
+        self.memory = SessionMemory()
+        self._graph = self._build_graph()
 
-    def _build_graph(self) -> None:
-        tools_impl = self.tools_impl
+    def _build_graph(self):
+        graph = StateGraph(CSState)
+        graph.add_node("memory", self._node_memory)
+        graph.add_node("route", self._node_route)
+        graph.add_node("retrieve", self._node_retrieve)
+        graph.add_node("ground", self._node_ground)
+        graph.add_node("act", self._node_act)
+        graph.add_node("persist", self._node_persist)
+        graph.add_edge(START, "memory")
+        graph.add_edge("memory", "route")
+        graph.add_conditional_edges(
+            "route",
+            lambda s: "act" if s.get("intent") == "chitchat" else "retrieve",
+            {"act": "act", "retrieve": "retrieve"},
+        )
+        graph.add_edge("retrieve", "ground")
+        graph.add_edge("ground", "act")
+        graph.add_edge("act", "persist")
+        graph.add_edge("persist", END)
+        return graph.compile()
 
-        @tool
-        def hybrid_search(query: str) -> str:
-            """在 Neo4j GraphRAG 知识库中做向量+关键词+图谱扩展的混合检索。"""
-            return tools_impl.hybrid_search(query)
+    def _node_memory(self, state: CSState) -> dict:
+        history = self.memory.load_text(state["session_id"])
+        return {
+            "history": history,
+            "pipeline": [
+                {
+                    "step": "memory",
+                    "detail": "载入多轮会话" if history else "新会话",
+                    "ok": True,
+                }
+            ],
+            "tool_trace": [],
+            "citations": [],
+        }
 
-        @tool
-        def entity_lookup(name: str) -> str:
-            """在 Neo4j 知识图谱中查找实体及其关联关系/政策片段。"""
-            return tools_impl.entity_lookup(name)
+    def _node_route(self, state: CSState) -> dict:
+        intent, source = classify_intent(state["question"])
+        pipeline = list(state.get("pipeline") or [])
+        pipeline.append({"step": "route", "detail": f"intent={intent} source={source}", "ok": True})
+        return {
+            "intent": intent,
+            "intent_source": source,
+            "pipeline": pipeline,
+            "tool_trace": list(state.get("tool_trace") or []) + [f"route({intent}/{source})"],
+        }
 
-        @tool
-        def create_ticket(subject: str, detail: str, priority: str = "normal") -> str:
-            """当无法解答或用户要求人工时，创建客服工单。"""
-            return tools_impl.create_ticket(subject, detail, priority)
+    def _node_retrieve(self, state: CSState) -> dict:
+        self.tools_impl.reset()
+        question = state["question"]
+        intent = state.get("intent") or "faq"
+        parts: list[str] = [self.tools_impl.hybrid_search(question, top_k=5)]
+        if intent == "entity":
+            parts.append(self.tools_impl.entity_lookup(self._entity_query(question)))
+        pipeline = list(state.get("pipeline") or [])
+        pipeline.append(
+            {
+                "step": "retrieve",
+                "detail": f"GraphRAG hits={len(self.tools_impl.last_citations)}",
+                "ok": bool(self.tools_impl.last_citations),
+            }
+        )
+        return {
+            "evidence": "\n\n".join(p for p in parts if p),
+            "citations": list(self.tools_impl.last_citations),
+            "tool_trace": list(state.get("tool_trace") or []) + list(self.tools_impl.trace),
+            "pipeline": pipeline,
+        }
 
-        self._lc_tools = [hybrid_search, entity_lookup, create_ticket]
+    def _node_ground(self, state: CSState) -> dict:
+        hits = self.tools_impl.last_hits or [
+            RetrievedChunk(
+                chunk_id=c.get("chunk_id") or "",
+                title=c.get("title") or "",
+                text=c.get("snippet") or "",
+                source=c.get("source") or "",
+                score=float(c.get("score") or 0),
+                channel="fused",
+            )
+            for c in (state.get("citations") or [])
+        ]
+        confidence, grounded = evidence_confidence(state["question"], hits)
+        escalate = should_escalate(state.get("intent") or "faq", grounded, state["question"])
+        pipeline = list(state.get("pipeline") or [])
+        pipeline.append(
+            {
+                "step": "ground",
+                "detail": f"confidence={confidence:.2f} grounded={grounded} escalate={escalate}",
+                "ok": grounded or escalate,
+            }
+        )
+        return {
+            "confidence": confidence,
+            "grounded": grounded,
+            "should_escalate": escalate,
+            "pipeline": pipeline,
+            "tool_trace": list(state.get("tool_trace") or [])
+            + [f"ground(conf={confidence:.2f}, grounded={grounded})"],
+        }
 
-        def call_model(state: AgentState) -> dict:
-            llm = self._make_llm().bind_tools(self._lc_tools)
-            response = llm.invoke(state["messages"])
-            return {"messages": [response]}
+    def _node_act(self, state: CSState) -> dict:
+        intent = state.get("intent") or "faq"
+        ticket_id = ""
+        if state.get("should_escalate") or intent == "escalate":
+            ticket = self.tools_impl.create_ticket(
+                subject=state["question"][:80],
+                detail=state["question"],
+                priority="high" if intent == "escalate" else "normal",
+            )
+            ticket_id = self.tools_impl.last_ticket_id
+            answer = self._compose_escalation(state, ticket)
+            mode = "escalate"
+        elif intent == "chitchat":
+            answer = "在。问产品、登录、退款、SLA 都可以。搞不定就说转人工。"
+            mode = "chitchat"
+        else:
+            answer = self._generate_answer(state)
+            mode = "langgraph-cs" if self.settings.llm_ready else "offline-rag"
+        pipeline = list(state.get("pipeline") or [])
+        pipeline.append({"step": "act", "detail": mode, "ok": bool(answer)})
+        return {
+            "answer": answer,
+            "ticket_id": ticket_id,
+            "mode": mode,
+            "pipeline": pipeline,
+            "tool_trace": list(state.get("tool_trace") or []) + list(self.tools_impl.trace),
+            "citations": list(self.tools_impl.last_citations or state.get("citations") or []),
+        }
 
-        def should_continue(state: AgentState) -> str:
-            last = state["messages"][-1]
-            if isinstance(last, AIMessage) and last.tool_calls:
-                return "tools"
-            return END
+    def _node_persist(self, state: CSState) -> dict:
+        sid = state["session_id"]
+        extra = {"intent": state.get("intent") or "", "confidence": state.get("confidence") or 0.0}
+        self.memory.append(sid, "user", state["question"], extra)
+        self.memory.append(sid, "assistant", state.get("answer") or "", extra)
+        pipeline = list(state.get("pipeline") or [])
+        pipeline.append({"step": "persist", "detail": f"session={sid}", "ok": True})
+        return {"pipeline": pipeline}
 
-        graph = StateGraph(AgentState)
-        graph.add_node("agent", call_model)
-        graph.add_node("tools", ToolNode(self._lc_tools))
-        graph.add_edge(START, "agent")
-        graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
-        graph.add_edge("tools", "agent")
-        self._graph = graph.compile()
-
-    def _make_llm(self) -> ChatOpenAI:
-        return ChatOpenAI(
+    def _generate_answer(self, state: CSState) -> str:
+        if not self.settings.llm_ready:
+            return self._offline_answer(state)
+        llm = ChatOpenAI(
             model=self.settings.llm_model,
             api_key=self.settings.llm_api_key,
             base_url=self.settings.llm_base_url,
             temperature=0.2,
+            timeout=60,
+        )
+        user = ANSWER_PROMPT.format(
+            history=state.get("history") or "（无）",
+            intent=state.get("intent") or "faq",
+            confidence=f"{float(state.get('confidence') or 0):.2f}",
+            grounded="是" if state.get("grounded") else "否",
+            question=state["question"],
+            evidence=(state.get("evidence") or "（无检索命中）")[:6000],
+        )
+        msg = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user)])
+        text = msg.content if isinstance(msg.content, str) else str(msg.content)
+        return text.strip() or "暂时无法生成回答，请稍后重试或转人工。"
+
+    def _offline_answer(self, state: CSState) -> str:
+        cites = state.get("citations") or []
+        if not cites:
+            return "当前未配置 LLM_API_KEY，且知识库未命中。请先启动 Neo4j 并 seed。"
+        bullets = [f"[{i}] {c.get('snippet')}" for i, c in enumerate(cites, start=1)]
+        low = "" if state.get("grounded") else "\n（证据门控：置信度偏低，以下仅供参考。）"
+        return "没接大模型，先把检索到的片段列在下面：\n\n" + "\n".join(bullets) + low
+
+    def _compose_escalation(self, state: CSState, ticket_text: str) -> str:
+        conf = float(state.get("confidence") or 0.0)
+        extra = "\n材料里有一点相关内容，一并留在工单里。" if state.get("citations") else ""
+        return (
+            f"这个我先记工单，不在这儿硬答。{ticket_text}{extra}\n"
+            f"（检索把握 {conf:.2f}）把注册邮箱留一下就行，工作时间有人看。"
+        )
+
+    @staticmethod
+    def _entity_query(question: str) -> str:
+        for name in ("NovaInsight", "NovaFlow", "NovaBot", "NovaDesk", "SSO"):
+            if name.lower() in question.lower() or name in question:
+                return name
+        return question[:24]
+
+    def _to_response(self, out: CSState, session_id: str) -> ChatResponse:
+        citations = [Citation(**c) for c in (out.get("citations") or []) if c.get("chunk_id")]
+        steps = [PipelineStep(**s) for s in (out.get("pipeline") or []) if s.get("step")]
+        return ChatResponse(
+            answer=out.get("answer") or "暂时无法生成回答。",
+            citations=citations,
+            tool_trace=list(out.get("tool_trace") or []),
+            session_id=session_id,
+            mode=out.get("mode") or "langgraph-cs",
+            intent=out.get("intent") or "",
+            confidence=float(out.get("confidence") or 0.0),
+            grounded=bool(out.get("grounded")),
+            ticket_id=out.get("ticket_id") or "",
+            pipeline=steps,
         )
 
     def chat(self, message: str, session_id: str = "default") -> ChatResponse:
         self.tools_impl.reset()
-        if not self.settings.llm_ready:
-            return self._offline_rag_answer(message, session_id)
+        out = self._graph.invoke({"question": message, "session_id": session_id or "default"})
+        return self._to_response(out, session_id)
 
-        state: AgentState = {
-            "messages": [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=message),
-            ],
-            "question": message,
-            "session_id": session_id,
-        }
-        assert self._graph is not None
-        out = self._graph.invoke(state)
-        final_messages = out["messages"]
-        answer = ""
-        for msg in reversed(final_messages):
-            if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-                answer = msg.content if isinstance(msg.content, str) else str(msg.content)
-                break
-        if not answer:
-            # Some models put final text on a tool-call message; fall back to last AI content
-            for msg in reversed(final_messages):
-                if isinstance(msg, AIMessage) and msg.content:
-                    answer = msg.content if isinstance(msg.content, str) else str(msg.content)
-                    break
-        if not answer:
-            answer = "暂时无法生成回答，请稍后重试或转人工。"
-
-        citations = [Citation(**c) for c in self.tools_impl.last_citations]
-        return ChatResponse(
-            answer=answer,
-            citations=citations,
-            tool_trace=list(self.tools_impl.trace),
-            session_id=session_id,
-            mode="langgraph-agent",
-        )
-
-    def _offline_rag_answer(self, message: str, session_id: str) -> ChatResponse:
-        """No LLM key: still demonstrate GraphRAG retrieval + template answer."""
-        self.tools_impl.hybrid_search(message, top_k=4)
-        citations = [Citation(**c) for c in self.tools_impl.last_citations]
-        if not citations:
-            answer = (
-                "当前未配置 LLM_API_KEY，且知识库未命中相关内容。"
-                "请先启动 Neo4j 并执行 seed，或在 .env 中配置大模型密钥。"
-            )
-        else:
-            bullets = [f"[{i}] {c.snippet}" for i, c in enumerate(citations, start=1)]
-            answer = (
-                "【离线 GraphRAG 演示模式】未检测到可用 LLM_API_KEY，"
-                "以下基于 Neo4j 混合检索结果整理：\n\n"
-                + "\n".join(bullets)
-                + "\n\n配置 LLM 后将启用 LangGraph Agent 多工具推理。"
-            )
-        return ChatResponse(
-            answer=answer,
-            citations=citations,
-            tool_trace=list(self.tools_impl.trace),
-            session_id=session_id,
-            mode="offline-rag",
-        )
+    def iter_events(self, message: str, session_id: str = "default") -> Iterator[dict[str, Any]]:
+        self.tools_impl.reset()
+        init: CSState = {"question": message, "session_id": session_id or "default"}
+        merged: CSState = dict(init)
+        for event in self._graph.stream(init, stream_mode="updates"):
+            for node, payload in event.items():
+                merged.update(payload)
+                last = (payload.get("pipeline") or [{"step": node, "detail": node, "ok": True}])[-1]
+                yield {"type": node, **last}
+        resp = self._to_response(merged, session_id)
+        yield {"type": "final", "response": resp.model_dump()}
 
 
 _agent: CustomerServiceAgent | None = None

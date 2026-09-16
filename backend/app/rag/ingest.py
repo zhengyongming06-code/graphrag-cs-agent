@@ -16,13 +16,12 @@ class IngestResult:
     entity_count: int
 
 
-# Lightweight rule-based entity extraction (no extra NLP deps; resume-friendly GraphRAG demo)
 ENTITY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Product", re.compile(r"\b(NovaDesk|NovaBot|NovaFlow|NovaInsight)\b", re.I)),
-    ("Feature", re.compile(r"(工单|知识库|多渠道接入|SLA|智能路由|机器人|座席|质检|报表|Webhook|SSO|API)", re.I)),
-    ("Policy", re.compile(r"(退款政策|数据保留|隐私政策|服务等级协议|SLA|计费规则|试用期)", re.I)),
-    ("Plan", re.compile(r"(Free|Starter|Pro|Enterprise|免费版|专业版|企业版)", re.I)),
-    ("Issue", re.compile(r"(登录失败|无法发送|同步延迟|超时|报错|权限不足|邮件收不到)", re.I)),
+    ("Feature", re.compile(r"(工单|知识库|SLA|机器人|座席|Webhook|SSO|API)", re.I)),
+    ("Policy", re.compile(r"(退款政策|数据保留|服务等级协议|SLA|计费规则|试用期)", re.I)),
+    ("Plan", re.compile(r"(Free|Starter|Pro|Enterprise)", re.I)),
+    ("Issue", re.compile(r"(登录失败|无法发送|超时|权限不足|邮件收不到)", re.I)),
 ]
 
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.agent.graph import get_agent
@@ -17,6 +18,7 @@ from app.models.schemas import (
     HealthResponse,
     IngestResponse,
     IngestTextRequest,
+    TicketPatch,
 )
 from app.rag.embeddings import EmbeddingService
 from app.rag.eval_suite import load_cases, run_agent_eval, run_full_metrics, run_retrieval_eval
@@ -27,9 +29,9 @@ from app.security import require_admin
 
 settings = get_settings()
 app = FastAPI(
-    title="NovaDesk GraphRAG CS Agent",
-    description="Neo4j GraphRAG + LangGraph 智能客服 Agent 中台",
-    version="1.1.0",
+    title="知识库客服",
+    description="RAG / GraphRAG 知识库问答",
+    version="1.2.0",
 )
 
 app.add_middleware(
@@ -40,9 +42,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
-if STATIC_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SPA_DIR = REPO_ROOT / "frontend" / "dist"
+LEGACY_STATIC = Path(__file__).resolve().parent.parent / "static"
+# Prefer Vite build (frontend/dist) when present; otherwise legacy HTML.
+STATIC_DIR = SPA_DIR if (SPA_DIR / "index.html").exists() else LEGACY_STATIC
+ASSETS_DIR = STATIC_DIR / "assets" if STATIC_DIR == SPA_DIR else STATIC_DIR
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
 
 @app.on_event("startup")
@@ -76,6 +83,24 @@ def chat(req: ChatRequest) -> ChatResponse:
     if not neo4j.verify():
         raise HTTPException(status_code=503, detail="Neo4j 未连接，请先 docker compose up -d")
     return get_agent().chat(req.message, session_id=req.session_id)
+
+
+@app.post("/api/chat/stream")
+def chat_stream(req: ChatRequest):
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接，请先 docker compose up -d")
+
+    def event_gen():
+        for event in get_agent().iter_events(req.message, session_id=req.session_id):
+            payload = json.dumps(event, ensure_ascii=False)
+            yield f"event: {event.get('type', 'message')}\ndata: {payload}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/retrieve/compare")
@@ -189,6 +214,33 @@ def list_entities(limit: int = 50) -> list[dict]:
         """,
         limit=limit,
     )
+
+
+@app.get("/api/graph/subgraph")
+def graph_subgraph(limit: int = 36) -> dict:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    return neo4j.subgraph(limit=limit)
+
+
+@app.get("/api/tickets")
+def list_tickets(status: str | None = None, limit: int = 30) -> list[dict]:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    return neo4j.list_tickets(status=status, limit=limit)
+
+
+@app.patch("/api/tickets/{ticket_id}")
+def patch_ticket(ticket_id: str, req: TicketPatch, _: None = Depends(require_admin)) -> dict:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    row = neo4j.update_ticket(ticket_id, req.status)
+    if not row:
+        raise HTTPException(status_code=404, detail="工单不存在")
+    return row
 
 
 @app.get("/api/eval/cases")

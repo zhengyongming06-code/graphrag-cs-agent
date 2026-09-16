@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from app.rag.hybrid_retriever import HybridGraphRetriever
+from app.rag.hybrid_retriever import HybridGraphRetriever, RetrievedChunk
 from app.rag.neo4j_client import get_neo4j
 
 
@@ -11,14 +11,19 @@ class AgentTools:
     def __init__(self, retriever: HybridGraphRetriever | None = None) -> None:
         self.retriever = retriever or HybridGraphRetriever()
         self.last_citations: list[dict[str, Any]] = []
+        self.last_hits: list[RetrievedChunk] = []
+        self.last_ticket_id: str = ""
         self.trace: list[str] = []
 
     def reset(self) -> None:
         self.last_citations = []
+        self.last_hits = []
+        self.last_ticket_id = ""
         self.trace = []
 
     def hybrid_search(self, query: str, top_k: int = 5) -> str:
         hits = self.retriever.retrieve(query, top_k=top_k)
+        self.last_hits = hits
         self.trace.append(f"hybrid_search(q={query!r}, k={top_k}) -> {len(hits)} hits")
         if not hits:
             return "未检索到相关知识片段。"
@@ -57,7 +62,6 @@ class AgentTools:
             lines.append(
                 f"- {row.get('name')} [{row.get('type')}] related: {related or '无'}"
             )
-        # also pull policies/paths for richer graph answers
         policies = self.retriever.policy_paths(name, limit=3)
         if policies:
             lines.append("关联片段：")
@@ -76,6 +80,7 @@ class AgentTools:
 
     def create_ticket(self, subject: str, detail: str, priority: str = "normal") -> str:
         ticket_id = f"TKT-{uuid.uuid4().hex[:8].upper()}"
+        self.last_ticket_id = ticket_id
         neo4j = get_neo4j()
         neo4j.run(
             """
@@ -93,6 +98,5 @@ class AgentTools:
         )
         self.trace.append(f"create_ticket(id={ticket_id}, priority={priority})")
         return (
-            f"已创建人工跟进工单 {ticket_id}（优先级：{priority}）。"
-            f"主题：{subject}。座席将在 SLA 时限内联系你。"
+            f"已建工单 {ticket_id}（{priority}）。主题：{subject}。工作时间有人看。"
         )

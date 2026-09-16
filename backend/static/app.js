@@ -11,12 +11,22 @@ const evalOut = document.getElementById("evalOut");
 const adminTokenInput = document.getElementById("adminToken");
 const sessionId = crypto.randomUUID();
 
-const savedToken = localStorage.getItem("novadesk_admin_token") || "";
+const savedToken = localStorage.getItem("sage_admin_token") || "";
 if (adminTokenInput) adminTokenInput.value = savedToken;
+
+document.querySelectorAll(".tabs button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("on"));
+    btn.classList.add("on");
+    const tab = btn.dataset.tab;
+    document.querySelectorAll(".page").forEach((p) => p.classList.add("hidden"));
+    document.getElementById(`tab-${tab}`).classList.remove("hidden");
+  });
+});
 
 function adminHeaders(extra = {}) {
   const token = (adminTokenInput?.value || "").trim();
-  if (token) localStorage.setItem("novadesk_admin_token", token);
+  if (token) localStorage.setItem("sage_admin_token", token);
   const headers = { ...extra };
   if (token) headers["X-Admin-Token"] = token;
   return headers;
@@ -25,86 +35,122 @@ function adminHeaders(extra = {}) {
 function addMessage(role, content, extra = null) {
   const div = document.createElement("div");
   div.className = `msg ${role}`;
-  div.textContent = content;
+  const body = document.createElement("div");
+  body.textContent = content;
+  div.appendChild(body);
   if (extra) {
-    if (extra.mode) {
+    if (extra.ticket_id) {
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = `mode=${extra.mode}`;
+      meta.textContent = extra.ticket_id;
       div.appendChild(meta);
     }
-    if (extra.tool_trace && extra.tool_trace.length) {
-      const box = document.createElement("div");
-      box.className = "trace-list";
-      extra.tool_trace.forEach((t) => {
-        const item = document.createElement("div");
-        item.className = "trace-item";
-        item.textContent = `tool · ${t}`;
-        box.appendChild(item);
-      });
-      div.appendChild(box);
+    if (extra.pipeline && extra.pipeline.length) {
+      const det = document.createElement("details");
+      det.className = "pipe";
+      det.innerHTML = `<summary>过程</summary>${extra.pipeline.map((s) => s.step).join(" → ")}`;
+      div.appendChild(det);
     }
     if (extra.citations && extra.citations.length) {
-      const box = document.createElement("div");
-      box.className = "citations";
       extra.citations.forEach((c, i) => {
         const item = document.createElement("div");
         item.className = "cite";
-        item.textContent = `[${i + 1}] ${c.title || "chunk"} · score=${c.score} · ${c.snippet}`;
-        box.appendChild(item);
+        item.textContent = `[${i + 1}] ${c.title || ""} ${c.snippet || ""}`.slice(0, 220);
+        div.appendChild(item);
       });
-      div.appendChild(box);
     }
   }
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
+async function parseSseResponse(res) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let final = null;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const blocks = buf.split("\n\n");
+    buf = blocks.pop() || "";
+    for (const block of blocks) {
+      const line = block.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      const ev = JSON.parse(line.slice(6));
+      if (ev.type === "final") final = ev.response;
+    }
+  }
+  return final;
+}
+
+async function sendChat(message) {
+  try {
+    const res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, session_id: sessionId }),
+    });
+    if (res.ok && res.body) {
+      const data = await parseSseResponse(res);
+      if (data && data.answer) return data;
+    }
+  } catch {
+    /* fallback */
+  }
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, session_id: sessionId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "chat failed");
+  return data;
+}
+
 async function refreshHealth() {
   try {
-    const res = await fetch("/api/health");
-    const data = await res.json();
-    const neo = document.getElementById("pillNeo");
-    const llm = document.getElementById("pillLlm");
-    const emb = document.getElementById("pillEmb");
-    neo.textContent = `Neo4j ${data.neo4j}`;
-    neo.className = `pill ${data.neo4j === "up" ? "ok" : "bad"}`;
-    llm.textContent = `LLM ${data.llm}`;
-    llm.className = `pill ${data.llm === "configured" ? "ok" : "warn"}`;
-    emb.textContent = `Emb ${data.embedding}`;
-    emb.className = "pill ok";
-    if (data.stats) {
-      document.getElementById("statDocs").textContent = data.stats.documents ?? 0;
-      document.getElementById("statChunks").textContent = data.stats.chunks ?? 0;
-      document.getElementById("statEntities").textContent = data.stats.entities ?? 0;
-      document.getElementById("statRels").textContent = data.stats.relations ?? 0;
+    const data = await (await fetch("/api/health")).json();
+    document.getElementById("pillNeo").textContent = `Neo4j ${data.neo4j}`;
+    document.getElementById("pillLlm").textContent = `LLM ${data.llm}`;
+    const s = data.stats || {};
+    const line = document.getElementById("statsLine");
+    if (line) {
+      line.textContent = `文档 ${s.documents ?? 0} · 片段 ${s.chunks ?? 0} · 实体 ${s.entities ?? 0}`;
     }
     const catList = document.getElementById("catList");
-    catList.innerHTML = "";
-    (data.categories || []).forEach((c) => {
-      const chip = document.createElement("span");
-      chip.className = "cat-chip";
-      chip.textContent = `${c.category}: ${c.documents}`;
-      catList.appendChild(chip);
-    });
+    if (catList) {
+      catList.textContent = (data.categories || []).map((c) => `${c.category} ${c.documents}`).join("  ");
+    }
   } catch {
-    document.getElementById("pillNeo").textContent = "API down";
-    document.getElementById("pillNeo").className = "pill bad";
+    document.getElementById("pillNeo").textContent = "API 挂了";
   }
 }
 
 async function refreshEntities() {
   try {
-    const res = await fetch("/api/graph/entities?limit=12");
-    if (!res.ok) return;
-    const rows = await res.json();
+    const rows = await (await fetch("/api/graph/entities?limit=12")).json();
     const list = document.getElementById("entityList");
-    list.innerHTML = "";
-    rows.forEach((e) => {
-      const li = document.createElement("li");
-      li.innerHTML = `<span>${e.name}</span><span class="type">${e.type} · d=${e.degree}</span>`;
-      list.appendChild(li);
-    });
+    if (!list) return;
+    list.innerHTML = rows.map((e) => `<li>${e.name} <span class="dim">${e.type}</span></li>`).join("");
+  } catch {
+    /* ignore */
+  }
+}
+
+async function refreshTickets() {
+  const list = document.getElementById("ticketList");
+  if (!list) return;
+  try {
+    const rows = await (await fetch("/api/tickets?limit=12")).json();
+    if (!rows.length) {
+      list.innerHTML = "<li class='dim'>还没有工单</li>";
+      return;
+    }
+    list.innerHTML = rows
+      .map((t) => `<li><strong>${t.id}</strong> · ${t.status}<div class="dim">${t.subject || ""}</div></li>`)
+      .join("");
   } catch {
     /* ignore */
   }
@@ -118,19 +164,14 @@ chatForm.addEventListener("submit", async (ev) => {
   chatInput.value = "";
   sendBtn.disabled = true;
   try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, session_id: sessionId }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "chat failed");
+    const data = await sendChat(message);
     addMessage("bot", data.answer, data);
   } catch (err) {
-    addMessage("bot", `请求失败：${err.message}`);
+    addMessage("bot", `没发出去：${err.message}`);
   } finally {
     sendBtn.disabled = false;
     refreshHealth();
+    refreshTickets();
   }
 });
 
@@ -144,7 +185,7 @@ document.querySelectorAll(".quick button").forEach((btn) => {
 ingestForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const fd = new FormData(ingestForm);
-  ingestHint.textContent = "写入中…";
+  ingestHint.textContent = "在写…";
   try {
     const res = await fetch("/api/knowledge/ingest", {
       method: "POST",
@@ -153,14 +194,14 @@ ingestForm.addEventListener("submit", async (ev) => {
         title: fd.get("title"),
         content: fd.get("content"),
         source: "ui",
-        category: fd.get("category") || "manual",
+        category: fd.get("category") || "support",
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "ingest failed");
     ingestHint.textContent = data.message;
     ingestForm.reset();
-    if (adminTokenInput) adminTokenInput.value = localStorage.getItem("novadesk_admin_token") || "";
+    if (adminTokenInput) adminTokenInput.value = localStorage.getItem("sage_admin_token") || "";
     refreshHealth();
     refreshEntities();
   } catch (err) {
@@ -172,7 +213,7 @@ compareForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const query = document.getElementById("compareQuery").value.trim();
   if (!query) return;
-  compareOut.textContent = "对比中…";
+  compareOut.textContent = "…";
   try {
     const res = await fetch("/api/retrieve/compare", {
       method: "POST",
@@ -181,21 +222,16 @@ compareForm.addEventListener("submit", async (ev) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "compare failed");
-    const vec = (data.vector_only || [])
-      .map((h, i) => `  ${i + 1}. [${h.channel}] ${h.title} (${h.score})`)
-      .join("\n");
-    const hyb = (data.hybrid_graphrag || [])
-      .map((h, i) => `  ${i + 1}. [${h.channel}] ${h.title} (${h.score})`)
-      .join("\n");
-    compareOut.textContent =
-      `${data.summary}\n\n[Vector Only]\n${vec || "  (empty)"}\n\n[Hybrid GraphRAG]\n${hyb || "  (empty)"}`;
+    const vec = (data.vector_only || []).map((h, i) => `${i + 1}. ${h.title} [${h.channel}]`).join("\n");
+    const hyb = (data.hybrid_graphrag || []).map((h, i) => `${i + 1}. ${h.title} [${h.channel}]`).join("\n");
+    compareOut.textContent = `${data.summary}\n\n向量\n${vec}\n\n混合\n${hyb}`;
   } catch (err) {
     compareOut.textContent = err.message;
   }
 });
 
 evalBtn.addEventListener("click", async () => {
-  evalOut.textContent = "评测运行中（可能需要几十秒）…";
+  evalOut.textContent = "在跑…";
   evalBtn.disabled = true;
   try {
     const res = await fetch("/api/eval/run", {
@@ -206,22 +242,12 @@ evalBtn.addEventListener("click", async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
     const agent = data.agent || {};
-            const r = data.retrieval || agent.retrieval || {};
-            const lines = [
-              `Agent: ${agent.passed ?? "-"}/${agent.total ?? "-"}  pass_rate=${agent.pass_rate ?? "-"}`,
-              `Hit@3 vector=${r["vector_hit_rate@3"] ?? "-"} hybrid=${r["hybrid_hit_rate@3"] ?? "-"} lift=${r["hit_rate@3_lift"] ?? "-"}`,
-              `fusion=${r.fusion || "RRF"} hops=${r.graph_hops ?? 1}`,
-              `Retrieval hybrid_unique_wins: ${r.hybrid_unique_wins ?? "-"} / ${r.total ?? "-"}`,
-              "",
-              "Agent cases:",
-              ...((agent.cases || []).map((c) => `  ${c.pass ? "PASS" : "FAIL"} · ${c.q}`)),
-              "",
-              "Retrieval cases:",
-              ...((r.cases || []).map(
-                (c) => `  vec@3=${c["vector_hit@3"] ?? c.vector_cover} hyb@3=${c["hybrid_hit@3"] ?? c.hybrid_cover} · ${c.q}`
-              )),
-            ];
-    evalOut.textContent = lines.join("\n");
+    const r = data.retrieval || {};
+    evalOut.textContent = [
+      `问答 ${agent.passed ?? "-"}/${agent.total ?? "-"}`,
+      `Hit@3 向量=${r["vector_hit_rate@3"] ?? "-"} 混合=${r["hybrid_hit_rate@3"] ?? "-"}`,
+      ...(agent.cases || []).map((c) => `${c.pass ? "ok" : "fail"}  ${c.q}`),
+    ].join("\n");
   } catch (err) {
     evalOut.textContent = err.message;
   } finally {
@@ -229,10 +255,11 @@ evalBtn.addEventListener("click", async () => {
   }
 });
 
-addMessage(
-  "bot",
-  "你好，我是 NovaDesk GraphRAG Agent。支持：混合检索对话、纯向量 vs GraphRAG 对比、回归评测、分类知识入库。先问一个产品/政策问题，或右侧跑对比/评测。"
-);
+addMessage("bot", "知识库客服。产品、登录、退款、SLA 可以直接问，答不上来就转人工。");
 refreshHealth();
 refreshEntities();
-setInterval(refreshHealth, 15000);
+refreshTickets();
+setInterval(() => {
+  refreshHealth();
+  refreshTickets();
+}, 20000);

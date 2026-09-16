@@ -3,119 +3,89 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NovaDesk · GraphRAG Agent 中台</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <title>知识库客服</title>
   <link rel="stylesheet" href="/assets/styles.css" />
 </head>
 <body>
-  <div class="bg-orb bg-orb-a"></div>
-  <div class="bg-orb bg-orb-b"></div>
-  <div class="app">
-    <header class="topbar">
-      <div class="brand">
-        <div class="logo" aria-hidden="true"></div>
-        <div>
-          <div class="brand-name">NovaDesk</div>
-          <div class="brand-sub">GraphRAG Agent 中台 · Neo4j · LangGraph</div>
-        </div>
-      </div>
-      <div class="status-pills" id="statusPills">
-        <span class="pill" id="pillNeo">Neo4j …</span>
-        <span class="pill" id="pillLlm">LLM …</span>
-        <span class="pill" id="pillEmb">Emb …</span>
-      </div>
-    </header>
+  <header class="top">
+    <div>
+      <strong>知识库客服</strong>
+      <span class="dim">文档检索问答</span>
+    </div>
+    <nav class="tabs">
+      <button type="button" class="on" data-tab="chat">对话</button>
+      <button type="button" data-tab="tickets">工单</button>
+      <button type="button" data-tab="debug">调试</button>
+    </nav>
+    <div class="status">
+      <span id="pillNeo">Neo4j …</span>
+      <span id="pillLlm">LLM …</span>
+    </div>
+  </header>
 
-    <main class="layout">
-      <section class="panel chat-panel">
-        <div class="panel-head">
-          <h1>智能客服小舟</h1>
-          <p>混合检索 + 图谱扩展 + LangGraph 工具编排 · 回答带 Citation / Tool Trace</p>
-        </div>
-        <div class="messages" id="messages"></div>
-        <form class="composer" id="chatForm">
-          <input id="chatInput" type="text" placeholder="例如：Pro 套餐的 SLA 是多少？退款政策怎么算？" autocomplete="off" required />
-          <button type="submit" id="sendBtn">发送</button>
-        </form>
-        <div class="quick">
-          <button type="button" data-q="NovaDesk 有哪些核心模块？">产品模块</button>
-          <button type="button" data-q="登录失败怎么排查？">登录失败</button>
-          <button type="button" data-q="退款政策和数据保留多久？">退款政策</button>
-          <button type="button" data-q="Enterprise 的 SLA 首响是多久？">SLA</button>
-        </div>
+  <main id="tab-chat" class="page">
+    <section class="chat">
+      <div class="messages" id="messages"></div>
+      <div class="quick">
+        <button type="button" data-q="NovaDesk 有哪些核心模块？">产品</button>
+        <button type="button" data-q="登录失败怎么排查？">登录</button>
+        <button type="button" data-q="退款政策是什么？">退款</button>
+        <button type="button" data-q="Enterprise 的 SLA 首响多久？">SLA</button>
+        <button type="button" data-q="转人工，登录一直失败">转人工</button>
+      </div>
+      <form id="chatForm" class="composer">
+        <input id="chatInput" type="text" placeholder="问知识库里的问题" autocomplete="off" required />
+        <button type="submit" id="sendBtn">发送</button>
+      </form>
+    </section>
+  </main>
+
+  <main id="tab-tickets" class="page hidden">
+    <h1>工单</h1>
+    <p class="dim">转人工会记在这里。</p>
+    <ul class="tickets" id="ticketList"></ul>
+  </main>
+
+  <main id="tab-debug" class="page hidden">
+    <p class="dim">检索对比和评测，平时对话页用不到。</p>
+    <div class="debug-grid">
+      <section>
+        <h2>库</h2>
+        <p id="statsLine">—</p>
+        <div id="catList"></div>
+        <ul id="entityList"></ul>
       </section>
-
-      <aside class="side">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>知识中台状态</h2>
-            <p>Document / Chunk / Entity · 多分类知识库</p>
-          </div>
-          <div class="stats" id="stats">
-            <div class="stat"><span>Documents</span><strong id="statDocs">-</strong></div>
-            <div class="stat"><span>Chunks</span><strong id="statChunks">-</strong></div>
-            <div class="stat"><span>Entities</span><strong id="statEntities">-</strong></div>
-            <div class="stat"><span>Relations</span><strong id="statRels">-</strong></div>
-          </div>
-          <div class="cat-list" id="catList"></div>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>检索 A/B 对比</h2>
-            <p>纯向量 vs GraphRAG 混合召回</p>
-          </div>
-          <form class="ingest" id="compareForm">
-            <input id="compareQuery" placeholder="输入对比问题，如：Enterprise SLA" required />
-            <button type="submit">开始对比</button>
-          </form>
-          <pre class="trace-box" id="compareOut">等待对比…</pre>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>回归评测</h2>
-            <p>Agent 问答命中 + 检索覆盖对比</p>
-          </div>
-          <div class="btn-row">
-            <button type="button" id="evalBtn">运行评测</button>
-          </div>
-          <pre class="trace-box" id="evalOut">尚未运行</pre>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>入库新知识</h2>
-            <p>切分 · 向量化 · 实体抽取 · 分类落库</p>
-          </div>
-          <form class="ingest" id="ingestForm">
-            <input name="title" placeholder="标题" required />
-            <select name="category">
-              <option value="product">product</option>
-              <option value="support">support</option>
-              <option value="billing">billing</option>
-              <option value="sla">sla</option>
-              <option value="manual" selected>manual</option>
-            </select>
-            <textarea name="content" rows="4" placeholder="粘贴 FAQ / 政策 / 产品说明…" required></textarea>
-            <input name="adminToken" id="adminToken" placeholder="管理员 Token（可选，默认演示放行）" />
-            <button type="submit">写入 Neo4j</button>
-            <p class="hint" id="ingestHint"></p>
-          </form>
-        </section>
-
-        <section class="panel">
-          <div class="panel-head">
-            <h2>图谱实体 Top</h2>
-            <p>按关联度排序</p>
-          </div>
-          <ul class="entity-list" id="entityList"></ul>
-        </section>
-      </aside>
-    </main>
-  </div>
+      <section>
+        <h2>向量 vs 图谱</h2>
+        <form id="compareForm">
+          <input id="compareQuery" placeholder="例如：Enterprise SLA" required />
+          <button type="submit">对比</button>
+        </form>
+        <pre id="compareOut"> </pre>
+      </section>
+      <section>
+        <h2>评测</h2>
+        <button type="button" id="evalBtn">跑一遍</button>
+        <pre id="evalOut"> </pre>
+      </section>
+      <section>
+        <h2>补一条知识</h2>
+        <form id="ingestForm">
+          <input name="title" placeholder="标题" required />
+          <select name="category">
+              <option value="product">产品</option>
+              <option value="support">排障</option>
+              <option value="billing">退款</option>
+              <option value="sla">SLA</option>
+          </select>
+          <textarea name="content" rows="4" required></textarea>
+          <input name="adminToken" id="adminToken" placeholder="管理员 token，没有就空着" />
+          <button type="submit">写入</button>
+          <p class="dim" id="ingestHint"></p>
+        </form>
+      </section>
+    </div>
+  </main>
   <script src="/assets/app.js"></script>
 </body>
 </html>

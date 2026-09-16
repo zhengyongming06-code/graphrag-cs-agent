@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -20,12 +22,23 @@ class Citation(BaseModel):
     source: str = ""
 
 
+class PipelineStep(BaseModel):
+    step: str
+    detail: str = ""
+    ok: bool = True
+
+
 class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation] = []
     tool_trace: list[str] = []
     session_id: str
     mode: str = "agent"
+    intent: str = ""
+    confidence: float = 0.0
+    grounded: bool = False
+    ticket_id: str = ""
+    pipeline: list[PipelineStep] = []
 
 
 class IngestTextRequest(BaseModel):
@@ -58,3 +71,7 @@ class CompareRequest(BaseModel):
 
 class EvalRequest(BaseModel):
     mode: str = Field(default="agent", description="agent | retrieval | both")
+
+
+class TicketPatch(BaseModel):
+    status: Literal["open", "pending", "resolved", "closed"] = "open"
