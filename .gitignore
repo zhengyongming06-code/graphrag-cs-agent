@@ -15,3 +15,6 @@ backend/.cache/
 .idea/
 .vscode/
 data/uploads/
+eval/last_report.json
+scripts/build_resume.py
+scripts/build_interview_handbook.py

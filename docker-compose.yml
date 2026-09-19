@@ -1,7 +1,7 @@
 services:
   neo4j:
     image: neo4j:5.26-community
-    container_name: novadesk-neo4j
+    container_name: graphrag-cs-neo4j
     ports:
       - "7475:7474"
       - "7688:7687"
@@ -25,7 +25,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: novadesk-api
+    container_name: graphrag-cs-api
     ports:
       - "8000:8000"
     env_file:

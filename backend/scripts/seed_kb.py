@@ -17,7 +17,7 @@ def main() -> None:
     neo4j = Neo4jClient(settings)
     if not neo4j.verify():
         raise SystemExit(
-            f"无法连接 Neo4j: {settings.neo4j_uri}\n请先运行: docker compose up -d"
+            f"无法连接 Neo4j: {settings.neo4j_uri}\n请先运行: docker compose up -d neo4j"
         )
 
     emb = EmbeddingService(settings)
