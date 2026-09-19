@@ -197,7 +197,7 @@ def run_full_metrics() -> dict[str, Any]:
     agent = run_agent_eval()
     out = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "note": "自建评测集 keyword Hit@3 + 实测延迟；未接入 Ragas/TruLens，面试勿称为 Ragas 分数。",
+        "note": "自建评测集 keyword Hit@3 + 实测延迟；未接入 Ragas/TruLens。",
         "retrieval": retrieval,
         "latency": latency,
         "agent": {

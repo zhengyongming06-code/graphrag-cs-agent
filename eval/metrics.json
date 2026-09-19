@@ -1,6 +1,6 @@
 {
   "generated_at": "2026-09-15T07:06:04.384205+00:00",
-  "note": "自建评测集 keyword Hit@3 + 实测延迟；未接入 Ragas/TruLens，面试勿称为 Ragas 分数。",
+  "note": "自建评测集 keyword Hit@3 + 实测延迟；未接入 Ragas/TruLens。",
   "retrieval": {
     "generated_at": "2026-09-15T07:05:09.695619+00:00",
     "method": "keyword/gold-title Hit@3 on 自建评测集（非 Ragas）",

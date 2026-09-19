@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterator, TypedDict
 
+import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
@@ -159,8 +160,7 @@ class CustomerServiceAgent:
             answer = "在。问产品、登录、退款、SLA 都可以。搞不定就说转人工。"
             mode = "chitchat"
         else:
-            answer = self._generate_answer(state)
-            mode = "langgraph-cs" if self.settings.llm_ready else "offline-rag"
+            answer, mode = self._generate_answer(state)
         pipeline = list(state.get("pipeline") or [])
         pipeline.append({"step": "act", "detail": mode, "ok": bool(answer)})
         return {
@@ -181,16 +181,9 @@ class CustomerServiceAgent:
         pipeline.append({"step": "persist", "detail": f"session={sid}", "ok": True})
         return {"pipeline": pipeline}
 
-    def _generate_answer(self, state: CSState) -> str:
+    def _generate_answer(self, state: CSState) -> tuple[str, str]:
         if not self.settings.llm_ready:
-            return self._offline_answer(state)
-        llm = ChatOpenAI(
-            model=self.settings.llm_model,
-            api_key=self.settings.llm_api_key,
-            base_url=self.settings.llm_base_url,
-            temperature=0.2,
-            timeout=60,
-        )
+            return self._offline_answer(state), "offline-rag"
         user = ANSWER_PROMPT.format(
             history=state.get("history") or "（无）",
             intent=state.get("intent") or "faq",
@@ -199,17 +192,32 @@ class CustomerServiceAgent:
             question=state["question"],
             evidence=(state.get("evidence") or "（无检索命中）")[:6000],
         )
-        msg = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user)])
-        text = msg.content if isinstance(msg.content, str) else str(msg.content)
-        return text.strip() or "暂时无法生成回答，请稍后重试或转人工。"
+        try:
+            llm = ChatOpenAI(
+                model=self.settings.llm_model,
+                api_key=self.settings.llm_api_key,
+                base_url=self.settings.llm_base_url,
+                temperature=0.2,
+                timeout=25,
+                http_client=httpx.Client(trust_env=False, timeout=25.0),
+            )
+            msg = llm.invoke([SystemMessage(content=SYSTEM_PROMPT), HumanMessage(content=user)])
+            text = msg.content if isinstance(msg.content, str) else str(msg.content)
+            return (text.strip() or self._offline_answer(state)), "langgraph-cs"
+        except Exception:
+            return self._offline_answer(state), "offline-rag"
 
     def _offline_answer(self, state: CSState) -> str:
         cites = state.get("citations") or []
         if not cites:
-            return "当前未配置 LLM_API_KEY，且知识库未命中。请先启动 Neo4j 并 seed。"
-        bullets = [f"[{i}] {c.get('snippet')}" for i, c in enumerate(cites, start=1)]
-        low = "" if state.get("grounded") else "\n（证据门控：置信度偏低，以下仅供参考。）"
-        return "没接大模型，先把检索到的片段列在下面：\n\n" + "\n".join(bullets) + low
+            return "知识库没搜到。换个问法，或者说转人工。"
+        lines = []
+        for i, c in enumerate(cites[:4], start=1):
+            title = (c.get("title") or "").strip()
+            snippet = (c.get("snippet") or "").strip().replace("\n", " ")
+            lines.append(f"[{i}] {title} {snippet[:180]}")
+        low = "" if state.get("grounded") else "\n（检索把握偏低，仅供参考。）"
+        return "根据知识库：\n\n" + "\n".join(lines) + low
 
     def _compose_escalation(self, state: CSState, ticket_text: str) -> str:
         conf = float(state.get("confidence") or 0.0)
@@ -244,20 +252,28 @@ class CustomerServiceAgent:
 
     def chat(self, message: str, session_id: str = "default") -> ChatResponse:
         self.tools_impl.reset()
-        out = self._graph.invoke({"question": message, "session_id": session_id or "default"})
+        try:
+            out = self._graph.invoke({"question": message, "session_id": session_id or "default"})
+        except Exception:
+            out = {"question": message, "session_id": session_id, "answer": "知识库在，回答链路中断了。换个问法或说转人工。", "mode": "offline-rag"}
         return self._to_response(out, session_id)
 
     def iter_events(self, message: str, session_id: str = "default") -> Iterator[dict[str, Any]]:
         self.tools_impl.reset()
         init: CSState = {"question": message, "session_id": session_id or "default"}
         merged: CSState = dict(init)
-        for event in self._graph.stream(init, stream_mode="updates"):
-            for node, payload in event.items():
-                merged.update(payload)
-                last = (payload.get("pipeline") or [{"step": node, "detail": node, "ok": True}])[-1]
-                yield {"type": node, **last}
-        resp = self._to_response(merged, session_id)
-        yield {"type": "final", "response": resp.model_dump()}
+        try:
+            for event in self._graph.stream(init, stream_mode="updates"):
+                for node, payload in event.items():
+                    merged.update(payload)
+                    last = (payload.get("pipeline") or [{"step": node, "detail": node, "ok": True}])[-1]
+                    yield {"type": node, **last}
+            resp = self._to_response(merged, session_id)
+            yield {"type": "final", "response": resp.model_dump()}
+        except Exception:
+            merged["answer"] = merged.get("answer") or self._offline_answer(merged)
+            merged["mode"] = merged.get("mode") or "offline-rag"
+            yield {"type": "final", "response": self._to_response(merged, session_id).model_dump()}
 
 
 _agent: CustomerServiceAgent | None = None

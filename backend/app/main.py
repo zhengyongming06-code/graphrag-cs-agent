@@ -92,9 +92,30 @@ def chat_stream(req: ChatRequest):
         raise HTTPException(status_code=503, detail="Neo4j 未连接，请先 docker compose up -d")
 
     def event_gen():
-        for event in get_agent().iter_events(req.message, session_id=req.session_id):
-            payload = json.dumps(event, ensure_ascii=False)
-            yield f"event: {event.get('type', 'message')}\ndata: {payload}\n\n"
+        try:
+            for event in get_agent().iter_events(req.message, session_id=req.session_id):
+                payload = json.dumps(event, ensure_ascii=False)
+                yield f"event: {event.get('type', 'message')}\ndata: {payload}\n\n"
+        except Exception:
+            payload = json.dumps(
+                {
+                    "type": "final",
+                    "response": {
+                        "answer": "处理中断了。换个问法，或者说转人工。",
+                        "citations": [],
+                        "tool_trace": [],
+                        "session_id": req.session_id,
+                        "mode": "offline-rag",
+                        "intent": "",
+                        "confidence": 0.0,
+                        "grounded": False,
+                        "ticket_id": "",
+                        "pipeline": [],
+                    },
+                },
+                ensure_ascii=False,
+            )
+            yield f"event: final\ndata: {payload}\n\n"
 
     return StreamingResponse(
         event_gen(),

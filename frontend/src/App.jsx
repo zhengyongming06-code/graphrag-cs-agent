@@ -124,6 +124,11 @@ export default function App() {
                   ))}
                 </article>
               ))}
+              {busy && (
+                <article className="msg bot">
+                  <div>正在检索知识库…</div>
+                </article>
+              )}
             </div>
             <div className="quick">
               {QUICK.map((item) => (

@@ -53,18 +53,19 @@
 
 ## 启动
 
-需要 Docker（Neo4j）和 Python 3.11+。有 DeepSeek / OpenAI 兼容 Key 才能看到完整生成；没有 Key 仍可看检索与对照页。
+需要 Docker（Neo4j）、Python 3.11+。前端可选（Node 18+）。有 DeepSeek / OpenAI 兼容 Key 才能看到完整生成；没有 Key，或模型连不上，会回落到检索片段，对话不会卡住。
 
 ```bash
-cp .env.example .env
-# 填写 LLM_API_KEY；DeepSeek 示例：
+copy .env.example .env          # macOS / Linux: cp .env.example .env
+# 填写 LLM_API_KEY；DeepSeek：
 # LLM_BASE_URL=https://api.deepseek.com/v1
 # LLM_MODEL=deepseek-chat
 
 docker compose up -d neo4j
 cd backend
 python -m venv .venv
-.venv\Scripts\activate
+# Windows: .venv\Scripts\activate
+# macOS / Linux: source .venv/bin/activate
 pip install -r requirements.txt
 cd ..
 python backend/scripts/seed_kb.py --reset
@@ -72,7 +73,9 @@ cd backend
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-前端：
+只起 Neo4j 即可，本机用 uvicorn。浏览器打开 http://127.0.0.1:8000 就是对话台。
+
+前端（可选，端口 5173）：
 
 ```bash
 cd frontend
@@ -80,19 +83,11 @@ npm install
 npm run dev
 ```
 
-打开 http://127.0.0.1:5173
-
 Neo4j 浏览器：http://localhost:7475 （用户 `neo4j`，密码见 `.env.example`）。主机端口是 **7475 / 7688**，避免和本机其他 Neo4j 冲突。
 
 ```bash
 python eval/run_eval.py
-```
-
-RRF 单测（不需要 Neo4j）：
-
-```bash
-cd backend
-python -m pytest tests/test_rrf.py -q
+python -m pytest backend/tests/test_rrf.py -q
 ```
 
 ## 目录
