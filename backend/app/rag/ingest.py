@@ -99,6 +99,8 @@ class KnowledgeIngestor:
         chunks = chunk_text(content)
         if not chunks:
             raise ValueError("文档内容为空，无法入库")
+        if document_id:
+            self.neo4j.delete_document(document_id)
 
         vectors = self.embeddings.embed_texts(chunks)
         entities_all = extract_entities(content)

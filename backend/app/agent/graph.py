@@ -152,6 +152,7 @@ class CustomerServiceAgent:
                 subject=state["question"][:80],
                 detail=state["question"],
                 priority="high" if intent == "escalate" else "normal",
+                session_id=state.get("session_id") or "",
             )
             ticket_id = self.tools_impl.last_ticket_id
             answer = self._compose_escalation(state, ticket)

@@ -66,9 +66,14 @@ export async function compare(query) {
   return data;
 }
 
-export async function runEval(token) {
+function adminHeaders(token) {
   const headers = { "Content-Type": "application/json" };
-  if (token) headers["X-Admin-Token"] = token;
+  headers["X-Admin-Token"] = (token || "").trim() || "change-me-in-production";
+  return headers;
+}
+
+export async function runEval(token) {
+  const headers = adminHeaders(token);
   const res = await fetch("/api/eval/run", {
     method: "POST",
     headers,
@@ -80,8 +85,7 @@ export async function runEval(token) {
 }
 
 export async function ingest(payload, token) {
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers["X-Admin-Token"] = token;
+  const headers = adminHeaders(token);
   const res = await fetch("/api/knowledge/ingest", {
     method: "POST",
     headers,

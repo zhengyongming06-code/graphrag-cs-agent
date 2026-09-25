@@ -18,6 +18,9 @@ from app.models.schemas import (
     HealthResponse,
     IngestResponse,
     IngestTextRequest,
+    SessionDetail,
+    SessionSummary,
+    TicketCreate,
     TicketPatch,
 )
 from app.rag.embeddings import EmbeddingService
@@ -162,6 +165,7 @@ def ingest_text(
             content=req.content,
             source=req.source,
             category=req.category,
+            document_id=req.document_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -208,6 +212,36 @@ async def ingest_upload(
     )
 
 
+@app.delete("/api/knowledge/documents/{document_id}")
+def delete_document(document_id: str, _: None = Depends(require_admin)) -> dict:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    if not neo4j.delete_document(document_id):
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return {"document_id": document_id, "deleted": True}
+
+
+@app.get("/api/sessions", response_model=list[SessionSummary])
+def list_sessions(limit: int = 50, _: None = Depends(require_admin)) -> list[SessionSummary]:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    rows = neo4j.list_sessions(limit=limit)
+    return [SessionSummary(**row) for row in rows]
+
+
+@app.get("/api/sessions/{session_id}", response_model=SessionDetail)
+def get_session(session_id: str, _: None = Depends(require_admin)) -> SessionDetail:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    row = neo4j.get_session(session_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return SessionDetail(**row)
+
+
 @app.get("/api/knowledge/stats")
 def knowledge_stats() -> dict:
     neo4j = get_neo4j()
@@ -251,6 +285,26 @@ def list_tickets(status: str | None = None, limit: int = 30) -> list[dict]:
     if not neo4j.verify():
         raise HTTPException(status_code=503, detail="Neo4j 未连接")
     return neo4j.list_tickets(status=status, limit=limit)
+
+
+@app.post("/api/tickets")
+def create_ticket(req: TicketCreate, _: None = Depends(require_admin)) -> dict:
+    neo4j = get_neo4j()
+    if not neo4j.verify():
+        raise HTTPException(status_code=503, detail="Neo4j 未连接")
+    from app.agent.tools import AgentTools
+
+    tools = AgentTools()
+    tools.create_ticket(
+        subject=req.subject,
+        detail=req.detail,
+        priority=req.priority,
+        session_id=req.session_id,
+        ticket_id=req.ticket_id,
+    )
+    rows = neo4j.list_tickets(limit=80)
+    row = next((t for t in rows if t.get("id") == tools.last_ticket_id), None)
+    return row or {"id": tools.last_ticket_id, "status": "open", "session_id": req.session_id}
 
 
 @app.patch("/api/tickets/{ticket_id}")

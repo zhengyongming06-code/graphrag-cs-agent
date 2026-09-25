@@ -142,6 +142,76 @@ class Neo4jClient:
             limit=limit,
         )
 
+    def delete_document(self, document_id: str) -> bool:
+        """Remove a Document, its Chunks, and Entity nodes that nothing else mentions."""
+        existed = self.run(
+            """
+            MATCH (d:Document {id: $id})
+            RETURN d.id AS id
+            """,
+            id=document_id,
+        )
+        if not existed:
+            return False
+        self.run(
+            """
+            MATCH (d:Document {id: $id})
+            OPTIONAL MATCH (d)-[:HAS_CHUNK]->(c:Chunk)
+            OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
+            WITH d, collect(DISTINCT c) AS chunks, collect(DISTINCT e) AS ents
+            FOREACH (c IN chunks | DETACH DELETE c)
+            DETACH DELETE d
+            WITH ents
+            UNWIND ents AS e
+            WITH e
+            WHERE e IS NOT NULL AND NOT (e)<-[:MENTIONS]-()
+            DETACH DELETE e
+            """,
+            id=document_id,
+        )
+        return True
+
+    def list_sessions(self, limit: int = 50) -> list[dict]:
+        return self.run(
+            """
+            MATCH (s:Session)
+            OPTIONAL MATCH (s)-[:HAS_TURN]->(t:Turn)
+            RETURN s.id AS session_id,
+                   toString(s.created_at) AS created_at,
+                   toString(s.updated_at) AS updated_at,
+                   count(t) AS turn_count
+            ORDER BY s.updated_at DESC
+            LIMIT $limit
+            """,
+            limit=limit,
+        )
+
+    def get_session(self, session_id: str) -> dict | None:
+        heads = self.run(
+            """
+            MATCH (s:Session {id: $sid})
+            RETURN s.id AS session_id,
+                   toString(s.created_at) AS created_at,
+                   toString(s.updated_at) AS updated_at
+            """,
+            sid=session_id,
+        )
+        if not heads:
+            return None
+        turns = self.run(
+            """
+            MATCH (s:Session {id: $sid})-[:HAS_TURN]->(t:Turn)
+            RETURN t.role AS role,
+                   t.content AS content,
+                   coalesce(t.intent, '') AS intent,
+                   coalesce(t.confidence, 0.0) AS confidence,
+                   toString(t.created_at) AS created_at
+            ORDER BY t.created_at ASC
+            """,
+            sid=session_id,
+        )
+        return {**heads[0], "turns": turns}
+
     def list_tickets(self, status: str | None = None, limit: int = 30) -> list[dict]:
         if status:
             return self.run(
@@ -150,6 +220,7 @@ class Neo4jClient:
                 WHERE t.status = $status
                 RETURN t.id AS id, t.subject AS subject, t.detail AS detail,
                        t.priority AS priority, t.status AS status,
+                       coalesce(t.session_id, '') AS session_id,
                        toString(t.created_at) AS created_at
                 ORDER BY t.created_at DESC
                 LIMIT $limit
@@ -162,6 +233,7 @@ class Neo4jClient:
             MATCH (t:Ticket)
             RETURN t.id AS id, t.subject AS subject, t.detail AS detail,
                    t.priority AS priority, t.status AS status,
+                   coalesce(t.session_id, '') AS session_id,
                    toString(t.created_at) AS created_at
             ORDER BY t.created_at DESC
             LIMIT $limit

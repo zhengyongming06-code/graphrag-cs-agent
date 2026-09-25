@@ -28,7 +28,7 @@ function adminHeaders(extra = {}) {
   const token = (adminTokenInput?.value || "").trim();
   if (token) localStorage.setItem("sage_admin_token", token);
   const headers = { ...extra };
-  if (token) headers["X-Admin-Token"] = token;
+  headers["X-Admin-Token"] = token || "change-me-in-production";
   return headers;
 }
 

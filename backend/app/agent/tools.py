@@ -78,8 +78,15 @@ class AgentTools:
                 )
         return "\n".join(lines)
 
-    def create_ticket(self, subject: str, detail: str, priority: str = "normal") -> str:
-        ticket_id = f"TKT-{uuid.uuid4().hex[:8].upper()}"
+    def create_ticket(
+        self,
+        subject: str,
+        detail: str,
+        priority: str = "normal",
+        session_id: str = "",
+        ticket_id: str | None = None,
+    ) -> str:
+        ticket_id = ticket_id or f"TKT-{uuid.uuid4().hex[:8].upper()}"
         self.last_ticket_id = ticket_id
         neo4j = get_neo4j()
         neo4j.run(
@@ -89,13 +96,27 @@ class AgentTools:
                 t.detail = $detail,
                 t.priority = $priority,
                 t.status = 'open',
+                t.session_id = $session_id,
                 t.created_at = datetime()
             """,
             id=ticket_id,
             subject=subject,
             detail=detail,
             priority=priority,
+            session_id=session_id or "",
         )
+        if session_id:
+            neo4j.run(
+                """
+                MERGE (s:Session {id: $sid})
+                ON CREATE SET s.created_at = datetime()
+                SET s.updated_at = datetime()
+                MERGE (t:Ticket {id: $id})
+                MERGE (s)-[:HAS_TICKET]->(t)
+                """,
+                sid=session_id,
+                id=ticket_id,
+            )
         self.trace.append(f"create_ticket(id={ticket_id}, priority={priority})")
         return (
             f"已建工单 {ticket_id}（{priority}）。主题：{subject}。工作时间有人看。"

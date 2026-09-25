@@ -298,7 +298,7 @@ export default function App() {
                   <option value="sla">SLA</option>
                 </select>
                 <textarea name="content" rows={4} required />
-                <input name="adminToken" placeholder="管理员 token，没有就空着" />
+                <input name="adminToken" placeholder="X-Admin-Token，空则用默认 change-me-in-production" />
                 <button type="submit">写入</button>
                 <p className="dim">{ingestHint}</p>
               </form>

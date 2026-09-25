@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     app_secret: str = "change-me-in-production"
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://localhost:8088,http://127.0.0.1:8088"
     confidence_threshold: float = 0.28
     max_history_turns: int = 6
     use_llm_router: bool = False

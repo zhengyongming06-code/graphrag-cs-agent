@@ -46,6 +46,7 @@ class IngestTextRequest(BaseModel):
     content: str
     source: str = "manual"
     category: str = "general"
+    document_id: str | None = Field(default=None, max_length=64)
 
 
 class IngestResponse(BaseModel):
@@ -73,5 +74,35 @@ class EvalRequest(BaseModel):
     mode: str = Field(default="agent", description="agent | retrieval | both")
 
 
+class TicketCreate(BaseModel):
+    subject: str = Field(min_length=1, max_length=200)
+    detail: str = Field(default="", max_length=4000)
+    priority: str = Field(default="normal", max_length=16)
+    session_id: str = Field(default="", max_length=64)
+    ticket_id: str | None = Field(default=None, max_length=64)
+
+
 class TicketPatch(BaseModel):
     status: Literal["open", "pending", "resolved", "closed"] = "open"
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    created_at: str | None = None
+    updated_at: str | None = None
+    turn_count: int = 0
+
+
+class SessionTurn(BaseModel):
+    role: str
+    content: str
+    intent: str = ""
+    confidence: float = 0.0
+    created_at: str | None = None
+
+
+class SessionDetail(BaseModel):
+    session_id: str
+    created_at: str | None = None
+    updated_at: str | None = None
+    turns: list[SessionTurn] = []

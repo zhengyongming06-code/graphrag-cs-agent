@@ -14,6 +14,8 @@ backend/.cache/
 *.log
 .idea/
 .vscode/
+ruoyi-cs/target/
+ruoyi-cs/data/
 data/uploads/
 eval/last_report.json
 scripts/build_resume.py
